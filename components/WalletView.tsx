@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Transaction, DailyFinancial } from '../types';
 import { getTransactions, addTransaction, updateTransaction, deleteTransaction, getTodayFinancials } from '../services/storage';
-import { Wallet, TrendingUp, TrendingDown, X, PiggyBank, Plus, Utensils, Fuel, Banknote, Save, Bike, ShoppingBag, Pencil, Trash2 } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, X, PiggyBank, Plus, Utensils, Fuel, Banknote, Save, Bike, ShoppingBag, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 
 const WalletView: React.FC = () => {
     const [summary, setSummary] = useState<DailyFinancial | null>(null);
@@ -9,6 +9,7 @@ const WalletView: React.FC = () => {
     
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false); // State untuk Custom Delete Dialog
     const [editingTxId, setEditingTxId] = useState<string | null>(null);
     
     // Form State
@@ -47,12 +48,18 @@ const WalletView: React.FC = () => {
         setIsModalOpen(true);
     };
 
-    const handleDelete = () => {
+    // Trigger Custom Dialog
+    const handleDeleteClick = () => {
         if (!editingTxId) return;
+        setIsDeleteConfirmOpen(true);
+    };
 
-        if (window.confirm("Yakin ingin menghapus catatan ini? Data yang dihapus tidak bisa dikembalikan.")) {
+    // Eksekusi Hapus
+    const confirmDelete = () => {
+        if (editingTxId) {
             deleteTransaction(editingTxId);
-            setIsModalOpen(false);
+            setIsDeleteConfirmOpen(false); // Tutup dialog confirm
+            setIsModalOpen(false); // Tutup form utama
             refreshData();
         }
     };
@@ -227,7 +234,7 @@ const WalletView: React.FC = () => {
                 </button>
             </div>
 
-            {/* 5. MODAL POPUP (The New Interactive Form) */}
+            {/* 5. MODAL FORM INPUT/EDIT */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="w-full max-w-md bg-[#121212] border-t border-gray-700 sm:border sm:rounded-2xl p-6 shadow-2xl relative animate-in slide-in-from-bottom-10 duration-300">
@@ -325,11 +332,11 @@ const WalletView: React.FC = () => {
                                 {editingTxId ? 'UPDATE DATA' : `SIMPAN ${type === 'income' ? 'PEMASUKAN' : 'PENGELUARAN'}`}
                             </button>
                             
-                            {/* DELETE BUTTON - MOVED HERE FOR BETTER UX/ACCESSIBILITY */}
+                            {/* DELETE BUTTON (TRIGGER CUSTOM DIALOG) */}
                             {editingTxId && (
                                 <button 
                                     type="button" 
-                                    onClick={handleDelete}
+                                    onClick={handleDeleteClick}
                                     className="w-full py-4 mt-3 bg-red-900/20 text-red-500 border border-red-900 rounded-xl font-bold flex justify-center items-center gap-2 hover:bg-red-900/40 transition-colors"
                                 >
                                     <Trash2 size={20} />
@@ -341,6 +348,40 @@ const WalletView: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* 6. CUSTOM DELETE CONFIRMATION DIALOG (Driver Friendly) */}
+            {isDeleteConfirmOpen && (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-200 px-4">
+                     <div className="w-full max-w-sm bg-[#1e1e1e] border border-red-900/50 rounded-2xl p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-red-900/20 rounded-full flex items-center justify-center mb-4 border border-red-500/30">
+                                <AlertTriangle size={32} className="text-red-500" />
+                            </div>
+                            
+                            <h3 className="text-xl font-black text-white uppercase mb-2">Hapus Orderan Ini?</h3>
+                            <p className="text-gray-400 text-sm leading-relaxed mb-6">
+                                Yakin Ndan mau dihapus? Data riwayat ini bakal ilang permanen dan <strong className="text-red-400">gabisa dibalikin</strong>. Itungan setoran hari ini bisa berubah lho.
+                            </p>
+
+                            <div className="flex gap-3 w-full">
+                                <button 
+                                    onClick={() => setIsDeleteConfirmOpen(false)}
+                                    className="flex-1 py-3 rounded-xl font-bold text-gray-400 bg-gray-800 hover:bg-gray-700 transition-colors"
+                                >
+                                    Gak Jadi
+                                </button>
+                                <button 
+                                    onClick={confirmDelete}
+                                    className="flex-1 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-500 shadow-[0_4px_15px_rgba(220,38,38,0.4)] transition-all active:scale-95"
+                                >
+                                    Sikat, Hapus!
+                                </button>
+                            </div>
+                        </div>
+                     </div>
+                </div>
+            )}
+
         </div>
     );
 }

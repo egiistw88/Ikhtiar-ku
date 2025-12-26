@@ -7,7 +7,7 @@ export interface Hotspot {
   predicted_hour: string; // HH:mm
   origin: string;
   type: string; // Bike, Bike Delivery, etc.
-  category: 'Culinary' | 'Commercial' | 'Health/Office' | 'Logistics' | 'Residential' | 'Service' | 'Service/Hangout' | 'Culinary Night' | 'Health' | 'Residential/Shop' | 'Market' | 'Industrial/Office' | 'Health/Emergency' | 'Education' | 'Education/Office' | 'Gov/Facility' | 'Transport Hub' | 'Mall/Lifestyle' | 'Other';
+  category: 'Culinary' | 'Commercial' | 'Health/Office' | 'Logistics' | 'Residential' | 'Service' | 'Service/Hangout' | 'Culinary Night' | 'Health' | 'Residential/Shop' | 'Market' | 'Industrial/Office' | 'Health/Emergency' | 'Education' | 'Education/Office' | 'Gov/Facility' | 'Transport Hub' | 'Mall/Lifestyle' | 'Other' | 'Bike';
   lat: number;
   lng: number;
   zone: string;

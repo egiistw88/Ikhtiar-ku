@@ -1,0 +1,7 @@
+{
+  "name": "Ikhtiar-Ku",
+  "description": "Otak kedua untuk driver Ojol. Radar rezeki berbasis data historis dan peta panas untuk memaksimalkan ikhtiar menjemput rezeki.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Ikhtiar-Ku: Radar Rezeki",
+  "short_name": "Ikhtiar-Ku",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -17,6 +17,18 @@ export const getCurrentTimeInfo = () => {
 };
 
 /**
+ * CRITICAL FIX: Get local date string (YYYY-MM-DD) respecting device timezone (WIB/WITA/WIT).
+ * Previous `toISOString()` used UTC, causing day shifts at 7 AM WIB.
+ */
+export const getLocalDateString = (): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+/**
  * Checks if the hotspot time is within +/- 60 minutes (1 hour) of current time
  */
 export const isWithinTimeWindow = (targetTime: string, currentTime: string): boolean => {

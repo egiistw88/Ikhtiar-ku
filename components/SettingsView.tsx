@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings } from '../types';
-import { getUserSettings, saveUserSettings } from '../services/storage';
-import { Settings, Save, Coffee, Bike, Package, ShoppingBag, Target, ArrowLeft } from 'lucide-react';
+import { getUserSettings, saveUserSettings, clearShiftState } from '../services/storage';
+import { Settings, Save, Coffee, Bike, Package, ShoppingBag, Target, ArrowLeft, RefreshCw, AlertTriangle } from 'lucide-react';
 
 interface SettingsViewProps {
     onBack: () => void;
@@ -22,6 +22,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack }) => {
         };
         saveUserSettings(newSettings);
         onBack();
+    };
+
+    const handleResetShift = () => {
+        if (confirm("Reset kondisi tempur (Saldo/Bensin)? Anda harus input ulang dari awal.")) {
+            clearShiftState();
+            // Force reload page to trigger PreRideSetup again logic in App.tsx
+            window.location.reload();
+        }
     };
 
     const togglePref = (key: keyof UserSettings['preferences']) => {
@@ -94,6 +102,22 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack }) => {
                 </div>
             </div>
 
+            {/* ERROR CORRECTION FEATURE */}
+            <div className="bg-[#1e1e1e] p-5 rounded-xl border border-gray-700">
+                <div className="flex items-center gap-2 mb-4 text-app-primary">
+                    <RefreshCw size={20} />
+                    <h3 className="font-bold uppercase text-sm">Koreksi Data</h3>
+                </div>
+                <p className="text-xs text-gray-500 mb-4">Salah input saldo/bensin di awal? Reset kondisi tempur disini.</p>
+                <button 
+                    onClick={handleResetShift}
+                    className="w-full py-3 bg-gray-800 border border-gray-600 hover:bg-gray-700 text-gray-300 font-bold rounded-xl flex justify-center items-center gap-2 text-sm"
+                >
+                    <AlertTriangle size={16} className="text-yellow-500" />
+                    EDIT KONDISI AWAL (RESET)
+                </button>
+            </div>
+
             <button 
                 onClick={handleSave}
                 className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg flex justify-center items-center gap-2"
@@ -103,7 +127,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack }) => {
             </button>
 
              <div className="text-center mt-8">
-                <p className="text-[10px] text-gray-600 uppercase font-bold tracking-widest">Ikhtiar-Ku Pro v1.1</p>
+                <p className="text-[10px] text-gray-600 uppercase font-bold tracking-widest">Ikhtiar-Ku Pro v1.2</p>
             </div>
         </div>
     );

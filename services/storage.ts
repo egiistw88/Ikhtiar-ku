@@ -1,8 +1,9 @@
-import { Hotspot, Transaction, DailyFinancial, GarageData, UserSettings } from '../types';
+import { Hotspot, Transaction, DailyFinancial, GarageData, UserSettings, ShiftState } from '../types';
 import { INITIAL_DATA } from '../constants';
+import { getLocalDateString } from '../utils';
 
 const STORAGE_KEY = 'ikhtiar_ku_data_v1';
-const SHIFT_KEY = 'ikhtiar_ku_shift_start';
+const SHIFT_STATE_KEY = 'ikhtiar_ku_shift_state_v2'; 
 const FINANCE_KEY = 'ikhtiar_ku_finance_v1';
 const SETTINGS_KEY = 'ikhtiar_ku_settings_v1';
 const GARAGE_KEY = 'ikhtiar_ku_garage_v1';
@@ -45,13 +46,12 @@ export const deleteHotspot = (id: string): void => {
     }
 }
 
-// DIMENSI 4: Feedback Loop
 export const toggleValidation = (id: string, isAccurate: boolean): void => {
     try {
         const current = getHotspots();
         const updated = current.map(h => {
             if (h.id === id) {
-                const today = new Date().toISOString().split('T')[0];
+                const today = getLocalDateString();
                 const validations = h.validations || [];
                 // Remove existing validation for today if any
                 const filtered = validations.filter(v => v.date !== today);
@@ -68,22 +68,37 @@ export const toggleValidation = (id: string, isAccurate: boolean): void => {
     }
 }
 
-// DIMENSI 3: Manajemen Kelelahan (Persist Shift)
-export const getShiftStart = (): Date => {
-    const stored = localStorage.getItem(SHIFT_KEY);
-    if (stored) {
-        return new Date(stored);
+// ==========================================
+// NEW: SHIFT STATE (MODAL AWAL)
+// ==========================================
+export const getShiftState = (): ShiftState | null => {
+    const stored = localStorage.getItem(SHIFT_STATE_KEY);
+    if (!stored) return null;
+    
+    try {
+        const parsed: ShiftState = JSON.parse(stored);
+        const today = getLocalDateString();
+
+        // If stored data is from previous day, reset it
+        if (parsed.date !== today) {
+            localStorage.removeItem(SHIFT_STATE_KEY);
+            return null;
+        }
+        
+        return parsed;
+    } catch (e) {
+        // Corrupt data fallback
+        localStorage.removeItem(SHIFT_STATE_KEY);
+        return null;
     }
-    const now = new Date();
-    localStorage.setItem(SHIFT_KEY, now.toISOString());
-    return now;
 }
 
-// Reset shift timer for "Tutup Buku"
-export const resetShiftStart = (): Date => {
-    const now = new Date();
-    localStorage.setItem(SHIFT_KEY, now.toISOString());
-    return now;
+export const saveShiftState = (state: ShiftState): void => {
+    localStorage.setItem(SHIFT_STATE_KEY, JSON.stringify(state));
+}
+
+export const clearShiftState = (): void => {
+    localStorage.removeItem(SHIFT_STATE_KEY);
 }
 
 // ==========================================
@@ -140,9 +155,6 @@ export const updateTransaction = (updatedTx: Transaction): void => {
     const current = getTransactions();
     const updated = current.map(tx => tx.id === updatedTx.id ? updatedTx : tx);
     localStorage.setItem(FINANCE_KEY, JSON.stringify(updated));
-    
-    // Note: Updating distance won't automatically revert odometer logic to prevent complex sync issues.
-    // Odometer is treated as forward-only in this version for stability.
 }
 
 export const deleteTransaction = (id: string): void => {
@@ -153,7 +165,7 @@ export const deleteTransaction = (id: string): void => {
 }
 
 export const getTodayFinancials = (): DailyFinancial => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const txs = getTransactions().filter(t => t.date === todayStr);
     const settings = getUserSettings();
     

@@ -19,7 +19,7 @@ export interface Hotspot {
   }[];
 }
 
-export type ViewState = 'radar' | 'map' | 'journal' | 'wallet' | 'garage' | 'settings' | 'summary';
+export type ViewState = 'setup' | 'radar' | 'map' | 'journal' | 'wallet' | 'garage' | 'settings' | 'summary';
 
 export interface TimeState {
   dayName: string;
@@ -36,6 +36,16 @@ export interface UserSettings {
     showShop: boolean;
   };
   autoRainMode: boolean; // Future feature: auto detect weather
+}
+
+// Modal Awal & Kesiapan (New Feature)
+export interface ShiftState {
+    date: string; // ISO Date "YYYY-MM-DD"
+    startBalance: number; // Saldo Aplikator
+    startFuel: number; // 0 - 100 (Percentage)
+    startCash: number; // Uang Tunai di Dompet
+    status: 'CRITICAL' | 'WARNING' | 'SAFE';
+    recommendation: string;
 }
 
 // Financial Types

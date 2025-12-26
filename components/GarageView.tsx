@@ -1,200 +1,130 @@
 import React, { useState, useEffect } from 'react';
 import { GarageData } from '../types';
 import { getGarageData, saveGarageData } from '../services/storage';
-import { Shield, Smartphone, PenTool, Calendar, AlertCircle, Save, Gauge } from 'lucide-react';
+import { Shield, Smartphone, PenTool, AlertCircle, Save } from 'lucide-react';
 
 const GarageView: React.FC = () => {
     const [data, setData] = useState<GarageData>(getGarageData());
     const [isEditing, setIsEditing] = useState(false);
-
-    // Form states
-    const [contact, setContact] = useState('');
-    const [odometer, setOdometer] = useState('');
-    const [lastOil, setLastOil] = useState('');
-    const [stnk, setStnk] = useState('');
-    const [sim, setSim] = useState('');
+    
+    // Form Inputs
+    const [formData, setFormData] = useState<GarageData>(getGarageData());
 
     useEffect(() => {
-        const garage = getGarageData();
-        setData(garage);
-        setContact(garage.emergencyContact);
-        setOdometer(garage.currentOdometer.toString());
-        setLastOil(garage.lastOilChangeKm.toString());
-        setStnk(garage.stnkExpiryDate);
-        setSim(garage.simExpiryDate);
+        const d = getGarageData();
+        setData(d);
+        setFormData(d);
     }, []);
 
-    const handleSave = (e: React.FormEvent) => {
-        e.preventDefault();
-        const newData: GarageData = {
-            ...data,
-            emergencyContact: contact,
-            currentOdometer: parseInt(odometer) || 0,
-            lastOilChangeKm: parseInt(lastOil) || 0,
-            stnkExpiryDate: stnk,
-            simExpiryDate: sim
+    const handleChange = (key: keyof GarageData, val: any) => {
+        setFormData(prev => ({ ...prev, [key]: val }));
+    }
+
+    const handleSave = () => {
+        // Convert strings to nums where needed
+        const processed = {
+            ...formData,
+            currentOdometer: Number(formData.currentOdometer),
+            lastOilChangeKm: Number(formData.lastOilChangeKm)
         };
-        saveGarageData(newData);
-        setData(newData);
+        saveGarageData(processed);
+        setData(processed);
         setIsEditing(false);
     };
 
-    // Logic for Alerts
     const kmSinceOil = data.currentOdometer - data.lastOilChangeKm;
-    const isOilDue = kmSinceOil >= 2000;
+    const oilHealth = Math.max(0, 100 - (kmSinceOil / 2000 * 100));
     
-    const getDaysUntil = (dateStr: string) => {
-        if (!dateStr) return 999;
-        const target = new Date(dateStr);
-        const today = new Date();
-        const diff = target.getTime() - today.getTime();
-        return Math.ceil(diff / (1000 * 3600 * 24));
-    };
-
-    const daysStnk = getDaysUntil(data.stnkExpiryDate);
-    const daysSim = getDaysUntil(data.simExpiryDate);
-
     return (
-        <div className="pb-24 pt-4 px-4 space-y-6">
+        <div className="pt-4 px-4 space-y-6 pb-24">
             
-            <div className="bg-[#1e1e1e] p-6 rounded-2xl border border-gray-700 relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-4 opacity-10">
-                    <Shield size={100} />
+            <div className="flex items-center gap-3">
+                <div className="p-3 bg-app-card border border-app-border rounded-xl">
+                    <Shield size={24} className="text-white" />
                 </div>
-                <h2 className="text-xl font-bold text-white mb-1">Perisai Driver</h2>
-                <p className="text-gray-400 text-sm">Manajemen aset & keselamatan.</p>
-            </div>
-
-            {/* Emergency Contact Section */}
-            <div className="bg-red-900/20 border border-red-900/50 p-5 rounded-xl">
-                <div className="flex items-start gap-3">
-                    <div className="p-2 bg-red-600 rounded-lg text-white">
-                        <Smartphone size={20} />
-                    </div>
-                    <div className="flex-1">
-                        <h3 className="font-bold text-red-200">Kontak Darurat (SOS)</h3>
-                        <p className="text-xs text-gray-400 mt-1 mb-2">
-                            Nomor yang akan dihubungi otomatis saat tombol SOS ditekan.
-                        </p>
-                        {isEditing ? (
-                            <input 
-                                type="tel" 
-                                value={contact}
-                                onChange={e => setContact(e.target.value)}
-                                placeholder="08xxxxxxxx"
-                                className="w-full p-2 bg-black border border-red-800 rounded text-white"
-                            />
-                        ) : (
-                            <p className="text-xl font-mono font-bold text-white tracking-wider">
-                                {data.emergencyContact || "BELUM DISET!"}
-                            </p>
-                        )}
-                    </div>
+                <div>
+                    <h1 className="text-2xl font-black text-white">Akun & Garasi</h1>
+                    <p className="text-xs text-gray-500">Profil & Kesehatan Kendaraan</p>
                 </div>
             </div>
 
-            {/* Maintenance Section */}
-            <div className="bg-gray-800/50 border border-gray-700 p-5 rounded-xl space-y-4">
-                <div className="flex items-center gap-2 mb-2">
-                    <PenTool size={18} className="text-cyan-400" />
-                    <h3 className="font-bold text-gray-200">Kesehatan Motor</h3>
+            {/* 1. SOS SETTING */}
+            <div className="bg-app-danger/10 border border-app-danger/30 p-5 rounded-2xl">
+                <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-app-danger font-bold flex items-center gap-2"><Smartphone size={18}/> Kontak Darurat</h3>
                 </div>
-
-                {/* Odometer & Oil */}
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-[#121212] p-3 rounded-lg border border-gray-700">
-                        <p className="text-[10px] text-gray-500 uppercase font-bold">Odometer Saat Ini</p>
-                         {isEditing ? (
-                            <input type="number" value={odometer} onChange={e => setOdometer(e.target.value)} className="w-full bg-transparent text-white border-b border-gray-600 focus:outline-none font-mono" />
-                        ) : (
-                            <p className="text-lg font-mono text-white">{data.currentOdometer} <span className="text-xs">km</span></p>
-                        )}
-                    </div>
-                    <div className={`p-3 rounded-lg border ${isOilDue ? 'bg-red-900/20 border-red-500' : 'bg-[#121212] border-gray-700'}`}>
-                        <p className="text-[10px] text-gray-500 uppercase font-bold">Status Oli</p>
-                         {isEditing ? (
-                            <div className="flex flex-col">
-                                <label className="text-[8px]">KM Terakhir Ganti</label>
-                                <input type="number" value={lastOil} onChange={e => setLastOil(e.target.value)} className="w-full bg-transparent text-white border-b border-gray-600 focus:outline-none font-mono" />
-                            </div>
-                        ) : (
-                            <>
-                                <p className={`text-lg font-bold ${isOilDue ? 'text-red-400' : 'text-green-400'}`}>
-                                    {isOilDue ? 'GANTI!' : 'AMAN'}
-                                </p>
-                                <p className="text-[10px] text-gray-500">Pakai: {kmSinceOil} km</p>
-                            </>
-                        )}
-                    </div>
-                </div>
-
-                {isOilDue && !isEditing && (
-                    <div className="flex items-center gap-2 text-xs text-red-300 bg-red-900/30 p-2 rounded">
-                        <AlertCircle size={14} />
-                        <span>Mesin panas! Sudah lewat {kmSinceOil} KM.</span>
-                    </div>
+                {isEditing ? (
+                    <input 
+                        className="w-full bg-black border border-app-danger/50 p-3 rounded-xl text-white font-mono"
+                        placeholder="08xxxxx"
+                        value={formData.emergencyContact}
+                        onChange={e => handleChange('emergencyContact', e.target.value)}
+                    />
+                ) : (
+                    <p className="text-2xl font-mono font-bold text-white tracking-widest">{data.emergencyContact || "BELUM DISET"}</p>
                 )}
+                <p className="text-[10px] text-gray-400 mt-2">Nomor ini akan dihubungi saat tombol SOS ditekan.</p>
             </div>
 
-            {/* Documents Section */}
-            <div className="bg-gray-800/50 border border-gray-700 p-5 rounded-xl space-y-4">
-                <div className="flex items-center gap-2 mb-2">
-                    <Calendar size={18} className="text-amber-400" />
-                    <h3 className="font-bold text-gray-200">Dokumen</h3>
+            {/* 2. VEHICLE HEALTH */}
+            <div className="bg-app-card border border-app-border p-5 rounded-2xl space-y-5">
+                
+                {/* Odometer */}
+                <div>
+                    <p className="text-xs text-gray-500 font-bold uppercase mb-1">Odometer (KM)</p>
+                    {isEditing ? (
+                         <input 
+                            type="number"
+                            className="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white font-mono text-lg"
+                            value={formData.currentOdometer}
+                            onChange={e => handleChange('currentOdometer', e.target.value)}
+                        />
+                    ) : (
+                        <p className="text-3xl font-mono font-bold text-white">{data.currentOdometer.toLocaleString()}</p>
+                    )}
                 </div>
 
-                <div className="space-y-3">
-                    <div className="flex justify-between items-center border-b border-gray-700 pb-2">
-                        <span className="text-sm text-gray-400">Pajak STNK</span>
-                        {isEditing ? (
-                            <input type="date" value={stnk} onChange={e => setStnk(e.target.value)} className="bg-black text-white p-1 rounded text-xs" />
-                        ) : (
-                            <div className="text-right">
-                                <p className="text-sm font-bold text-white">{data.stnkExpiryDate || "-"}</p>
-                                {data.stnkExpiryDate && daysStnk <= 7 && (
-                                    <p className="text-[10px] text-red-400 font-bold">{daysStnk < 0 ? 'KADALUARSA' : `${daysStnk} HARI LAGI`}</p>
-                                )}
-                            </div>
-                        )}
+                {/* Oil Health Bar */}
+                <div>
+                    <div className="flex justify-between text-xs font-bold mb-1">
+                        <span className="text-gray-400">Kesehatan Oli</span>
+                        <span className={oilHealth < 20 ? 'text-app-danger' : 'text-app-accent'}>{Math.round(oilHealth)}%</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-400">Masa Berlaku SIM</span>
-                        {isEditing ? (
-                            <input type="date" value={sim} onChange={e => setSim(e.target.value)} className="bg-black text-white p-1 rounded text-xs" />
-                        ) : (
-                             <div className="text-right">
-                                <p className="text-sm font-bold text-white">{data.simExpiryDate || "-"}</p>
-                                {data.simExpiryDate && daysSim <= 30 && (
-                                    <p className="text-[10px] text-amber-400 font-bold">{daysSim < 0 ? 'KADALUARSA' : `${daysSim} HARI LAGI`}</p>
-                                )}
-                            </div>
-                        )}
+                    <div className="h-4 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
+                        <div 
+                            className={`h-full transition-all duration-500 ${oilHealth < 20 ? 'bg-app-danger' : 'bg-app-accent'}`} 
+                            style={{ width: `${oilHealth}%` }}
+                        ></div>
                     </div>
+                    {isEditing && (
+                        <div className="mt-2">
+                            <label className="text-[10px] text-gray-500">KM Terakhir Ganti Oli</label>
+                            <input 
+                                type="number"
+                                className="w-full bg-gray-900 border border-gray-700 p-2 rounded-lg text-white font-mono text-sm"
+                                value={formData.lastOilChangeKm}
+                                onChange={e => handleChange('lastOilChangeKm', e.target.value)}
+                            />
+                        </div>
+                    )}
+                    {kmSinceOil > 2000 && !isEditing && (
+                        <div className="mt-2 flex items-center gap-2 text-app-danger text-xs font-bold bg-app-danger/10 p-2 rounded">
+                            <AlertCircle size={14} /> WAKTUNYA GANTI OLI!
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <button 
-                onClick={() => isEditing ? document.dispatchEvent(new Event('submitGarage')) : setIsEditing(true)}
-                className={`w-full py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-all ${isEditing ? 'hidden' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
-            >
-                <PenTool size={18} />
-                EDIT DATA GARASI
-            </button>
-
-            {isEditing && (
-                 <button 
-                    onClick={handleSave}
-                    className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg"
-                >
-                    <Save size={18} />
-                    SIMPAN PERUBAHAN
+            {/* EDIT BUTTON */}
+            {isEditing ? (
+                <button onClick={handleSave} className="w-full py-4 bg-app-primary text-black font-black rounded-xl flex justify-center items-center gap-2 shadow-glow">
+                    <Save size={20} /> SIMPAN DATA
+                </button>
+            ) : (
+                <button onClick={() => setIsEditing(true)} className="w-full py-4 bg-gray-800 text-gray-300 font-bold rounded-xl flex justify-center items-center gap-2 border border-gray-700 hover:bg-gray-700">
+                    <PenTool size={18} /> EDIT PROFIL
                 </button>
             )}
-
-            <div className="text-center text-[10px] text-gray-600 mt-8">
-                <p>Ikhtiar-Ku v1.0 • Perisai Driver</p>
-                <p>Data tersimpan lokal di perangkat Anda.</p>
-            </div>
         </div>
     );
 };

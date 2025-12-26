@@ -1,18 +1,17 @@
 import React from 'react';
 import { DailyFinancial } from '../types';
-import { resetShiftStart } from '../services/storage';
-import { CheckCircle2, TrendingUp, Clock, History, PiggyBank, ArrowRight, Wallet } from 'lucide-react';
+import { clearShiftState } from '../services/storage';
+import { CheckCircle2, PiggyBank, ArrowRight, Wallet } from 'lucide-react';
 
 interface ShiftSummaryProps {
     financials: DailyFinancial | null;
-    hoursOnline: number;
     onClose: () => void;
 }
 
-const ShiftSummary: React.FC<ShiftSummaryProps> = ({ financials, hoursOnline, onClose }) => {
+const ShiftSummary: React.FC<ShiftSummaryProps> = ({ financials, onClose }) => {
     
     const handleCloseBook = () => {
-        resetShiftStart();
+        clearShiftState(); // Reset "Modal Awal" state so user must setup again next time
         onClose();
     };
 
@@ -103,7 +102,7 @@ const ShiftSummary: React.FC<ShiftSummaryProps> = ({ financials, hoursOnline, on
                         Selesai & Istirahat <ArrowRight size={20} />
                     </button>
                     <p className="text-center text-[10px] text-gray-500">
-                        Durasi On-Bid: {Math.floor(hoursOnline)}j {Math.round((hoursOnline % 1) * 60)}m
+                        Sampai jumpa besok, Pejuang Keluarga!
                     </p>
                 </div>
             </div>

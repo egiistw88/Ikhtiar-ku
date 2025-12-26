@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Hotspot, Transaction } from '../types';
 import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate } from '../utils';
-import { Save, MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge } from 'lucide-react';
+import { Save, MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, MicOff, Zap } from 'lucide-react';
 import { addHotspot, addTransaction } from '../services/storage';
 
 interface JournalEntryProps {
@@ -16,6 +16,12 @@ interface JournalEntryProps {
 type AppSource = 'Gojek' | 'Grab' | 'Maxim' | 'Shopee' | 'Indriver';
 type ServiceType = 'Bike' | 'Food' | 'Send' | 'Shop';
 
+// Web Speech API Types extension
+interface IWindow extends Window {
+  webkitSpeechRecognition: any;
+  SpeechRecognition: any;
+}
+
 const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState<string>('Mencari satelit...');
@@ -27,9 +33,12 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   const [argoRaw, setArgoRaw] = useState<string>(''); // Stores "15.000"
   const [origin, setOrigin] = useState(''); 
   const [notes, setNotes] = useState('');
-  
   const [entryTime, setEntryTime] = useState<string>(currentTime.timeString);
   const [tripDist, setTripDist] = useState<string>(''); 
+
+  // Voice State
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     setEntryTime(currentTime.timeString);
@@ -53,6 +62,132 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
     }
   }, []);
 
+  // ==========================================
+  // SMART VOICE PARSING ENGINE
+  // ==========================================
+  const toggleVoiceInput = () => {
+      vibrate(20);
+      const windowObj = window as unknown as IWindow;
+      const SpeechRecognition = windowObj.SpeechRecognition || windowObj.webkitSpeechRecognition;
+
+      if (!SpeechRecognition) {
+          alert("Browser ini tidak mendukung fitur suara. Gunakan Google Chrome.");
+          return;
+      }
+
+      if (isListening) {
+          recognitionRef.current?.stop();
+          setIsListening(false);
+          return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'id-ID'; // Wajib Bahasa Indonesia
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onend = () => setIsListening(false);
+      recognition.onerror = (e: any) => { 
+          console.error(e); 
+          setIsListening(false); 
+          alert("Gagal mendengar. Cek izin mikrofon atau coba lagi.");
+      };
+
+      recognition.onresult = (event: any) => {
+          const transcript = event.results[0][0].transcript.toLowerCase();
+          parseVoiceCommand(transcript);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+  };
+
+  const parseVoiceCommand = (text: string) => {
+      // Step 1: Detect Money (Slang & Formal)
+      const moneyMap: Record<string, number> = {
+          'goceng': 5000, 'ceban': 10000, 'cenggo': 1500, 'noban': 20000, 
+          'goban': 50000, 'cepek': 100000, 'juta': 1000000,
+          'ribu': 1000, 'rb': 1000
+      };
+
+      let amount = 0;
+      
+      // Regex untuk "15 ribu", "20rb"
+      const digitMatch = text.match(/(\d+)\s*(ribu|rb)/);
+      if (digitMatch) {
+          amount = parseInt(digitMatch[1]) * 1000;
+      } else {
+          // Cek slang satu per satu
+          for (const [key, val] of Object.entries(moneyMap)) {
+              if (text.includes(key)) {
+                  if (key === 'ribu' || key === 'rb') continue; // Skip modifier
+                  amount = val;
+                  break; // Prioritize first slang found
+              }
+          }
+          // Fallback: cari angka saja
+          if (amount === 0) {
+             const plainDigit = text.match(/(\d+)/);
+             if (plainDigit) {
+                 // Asumsi jika driver nyebut "15" maksudnya "15.000" (konteks ojol)
+                 const val = parseInt(plainDigit[1]);
+                 amount = val < 1000 ? val * 1000 : val;
+             }
+          }
+      }
+
+      if (amount > 0) setArgoRaw(formatCurrencyInput(amount.toString()));
+
+      // Step 2: Smart Categorization
+      // Auto-detect service based on brand/keywords
+      if (text.includes('gofood') || text.includes('grabfood') || text.includes('shopeefood') || text.includes('gacoan') || text.includes('mcd') || text.includes('kfc') || text.includes('mixue')) {
+          setServiceType('Food');
+      } else if (text.includes('gomart') || text.includes('belanja') || text.includes('indomaret') || text.includes('alfamart')) {
+          setServiceType('Shop');
+      } else if (text.includes('gosend') || text.includes('paket') || text.includes('barang')) {
+          setServiceType('Send');
+      } else if (text.includes('goride') || text.includes('grabbike') || text.includes('penumpang') || text.includes('sekolah') || text.includes('stasiun')) {
+          setServiceType('Bike');
+      }
+
+      // Step 3: Detect App Source
+      if (text.includes('maxim')) setAppSource('Maxim');
+      else if (text.includes('gojek') || text.includes('gofood') || text.includes('gosend')) setAppSource('Gojek');
+      else if (text.includes('grab')) setAppSource('Grab');
+      else if (text.includes('shopee')) setAppSource('Shopee');
+      else if (text.includes('indriver')) setAppSource('Indriver');
+
+      // Step 4: Extract Location Name (Cleanup)
+      const removeWords = [
+          'dapat', 'orderan', 'di', 'ke', 'dari', 'seharga', 'tarif', 'ongkir', 'rupiah',
+          'maxim', 'gojek', 'grab', 'shopee', 'indriver', 'gofood', 'grabfood',
+          'ribu', 'rb', 'goceng', 'ceban', 'goban', 'cepek', 'noban',
+          'food', 'bike', 'send', 'shop', 'tunai', 'cash'
+      ];
+      
+      let loc = text;
+      // Remove numbers
+      loc = loc.replace(/\d+/g, '');
+      // Remove keywords
+      removeWords.forEach(w => {
+          const regex = new RegExp(`\\b${w}\\b`, 'gi');
+          loc = loc.replace(regex, '');
+      });
+      
+      loc = loc.trim().replace(/\s+/g, ' '); // Clean double spaces
+      loc = loc.replace(/\b\w/g, c => c.toUpperCase()); // Title Case
+
+      if (loc.length > 2) {
+          setOrigin(loc);
+      } else {
+          // If extracted text is too short, probably failed, don't overwrite if user already typed
+          if (!origin) setOrigin("Titik Jemput (Edit Manual)");
+      }
+      
+      vibrate([50, 50]); // Success vibration
+  };
+
   const handleArgoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const formatted = formatCurrencyInput(e.target.value);
       setArgoRaw(formatted);
@@ -60,7 +195,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    vibrate(50); // Haptic
+    vibrate(50); 
 
     if (!coords) {
         alert("Sabar Ndan, GPS belum ngunci lokasi. Geser ke tempat terbuka sebentar.");
@@ -124,6 +259,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
     }, 800);
   };
 
+  // UI Components helpers
   const AppButton = ({ name, colorClass, activeClass }: { name: AppSource, colorClass: string, activeClass: string }) => (
       <button
         type="button"
@@ -161,6 +297,34 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
       <form onSubmit={handleSubmit} className="space-y-6">
         
+        {/* VOICE INPUT BUTTON */}
+        <div className="relative">
+            <button 
+                type="button"
+                onClick={toggleVoiceInput}
+                className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all border-2 overflow-hidden relative ${isListening ? 'bg-red-600 text-white border-red-500' : 'bg-[#222] text-cyan-400 border-gray-700 hover:border-cyan-500'}`}
+            >
+                {/* Visualizer Effect when listening */}
+                {isListening && (
+                    <div className="absolute inset-0 bg-red-600 flex items-center justify-center gap-1 opacity-20">
+                         <div className="w-1 h-full bg-white animate-[bounce_0.5s_infinite]"></div>
+                         <div className="w-1 h-full bg-white animate-[bounce_0.5s_infinite_0.1s]"></div>
+                         <div className="w-1 h-full bg-white animate-[bounce_0.5s_infinite_0.2s]"></div>
+                         <div className="w-1 h-full bg-white animate-[bounce_0.5s_infinite_0.3s]"></div>
+                         <div className="w-1 h-full bg-white animate-[bounce_0.5s_infinite_0.4s]"></div>
+                    </div>
+                )}
+                
+                {isListening ? <MicOff size={24} className="animate-pulse" /> : <Mic size={24} />}
+                <span className="relative z-10">{isListening ? 'MENDENGARKAN...' : 'INPUT SUARA (AI)'}</span>
+            </button>
+            {!isListening && (
+                <p className="text-center text-[10px] text-gray-500 mt-2 italic">
+                    Coba ucapkan: "Dapat Gofood di Mie Gacoan dua puluh lima ribu"
+                </p>
+            )}
+        </div>
+
         <div className="space-y-2">
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Sumber Orderan</label>
             <div className="grid grid-cols-3 gap-2">
@@ -238,6 +402,12 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
                         placeholder={serviceType === 'Food' ? "Contoh: Mie Gacoan..." : "Contoh: Simpang Dago..."}
                         className="w-full p-4 pl-12 bg-[#1e1e1e] border border-gray-700 rounded-xl text-white focus:border-cyan-500 focus:outline-none font-medium"
                     />
+                    {/* Auto-fill indicator */}
+                    {origin && (
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 text-cyan-500 animate-in fade-in">
+                            <CheckCircle2 size={18} />
+                        </div>
+                    )}
                 </div>
             </div>
              <div>

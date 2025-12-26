@@ -2,8 +2,9 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftState } from '../types';
 import { calculateDistance, getTimeDifference, vibrate } from '../utils';
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings } from '../services/storage';
+import { generateDriverStrategy } from '../services/ai';
 import { CATEGORY_COLORS } from '../constants';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, MapPin, Wrench, Power, AlertTriangle, CheckCircle, Battery, Zap, RefreshCw } from 'lucide-react';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, MapPin, Wrench, Power, AlertTriangle, CheckCircle, Battery, Zap, RefreshCw, Bot, Sparkles, X } from 'lucide-react';
 
 interface RadarViewProps {
   hotspots: Hotspot[];
@@ -31,14 +32,13 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
   const [settings, setSettings] = useState<UserSettings>(getUserSettings());
   const [timeOnline, setTimeOnline] = useState<number>(0);
   
-  // Scanning State
+  // AI & Scanning State
   const [isScanning, setIsScanning] = useState(false);
+  const [aiAdvice, setAiAdvice] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
   useEffect(() => {
-    // Initial sync
     syncData();
-    
-    // Auto sync location
     if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
             (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
@@ -46,13 +46,12 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
             { enableHighAccuracy: true }
         );
     }
-
     const interval = setInterval(syncData, 60000);
     return () => clearInterval(interval);
   }, [initialHotspots, shiftState]);
 
   const syncData = () => {
-        setLocalHotspots(getHotspots()); // Ensure we pull latest from storage
+        setLocalHotspots(getHotspots()); 
         setFinancials(getTodayFinancials());
         setGarage(getGarageData());
         setSettings(getUserSettings());
@@ -67,12 +66,26 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
   const handleManualScan = () => {
       vibrate(10);
       setIsScanning(true);
-      // Simulate scan delay
       setTimeout(() => {
           setIsScanning(false);
           syncData();
           onToast("Radar Diperbarui");
       }, 800);
+  };
+
+  const handleAiAnalysis = async () => {
+      vibrate(20);
+      setIsAiLoading(true);
+      setAiAdvice(null);
+      
+      // Call AI Service
+      const strategy = await generateDriverStrategy(predictions, financials, shiftState);
+      
+      setAiAdvice(strategy);
+      setIsAiLoading(false);
+      
+      // Haptic Success
+      vibrate([50, 50]);
   };
 
   const handleValidation = (id: string, isAccurate: boolean) => {
@@ -81,9 +94,6 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
       vibrate(10);
   };
 
-  // ==========================================
-  // SMART LOGIC: SCORING ENGINE V2
-  // ==========================================
   const predictions: ScoredHotspot[] = useMemo(() => {
     const todayStr = currentTime.fullDate.toISOString().split('T')[0];
     const currentNet = financials?.netCash || 0;
@@ -193,7 +203,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
             </div>
         </div>
 
-        {/* STATUS PANEL & FATIGUE MONITOR */}
+        {/* STATUS & FATIGUE */}
         <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-[#000]/60 backdrop-blur-sm rounded-xl p-3 border border-gray-800 flex flex-col justify-center">
                 <div className="flex items-center gap-2 mb-1">
@@ -240,6 +250,38 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         >
             <Power size={18} />
         </button>
+      </div>
+      
+      {/* AI STRATEGY BOX (NEW) */}
+      <div className="relative">
+        {!aiAdvice ? (
+             <button 
+                onClick={handleAiAnalysis}
+                disabled={isAiLoading}
+                className={`w-full py-4 border rounded-2xl flex items-center justify-center gap-2 font-black text-sm shadow-lg transition-all active:scale-[0.98] ${isAiLoading ? 'bg-gray-800 border-gray-700 text-gray-400' : 'bg-gradient-to-r from-indigo-600 to-purple-600 border-indigo-400 text-white hover:brightness-110 shadow-indigo-900/50'}`}
+            >
+                {isAiLoading ? <RefreshCw size={20} className="animate-spin" /> : <Sparkles size={20} className="text-yellow-200 fill-yellow-200" />}
+                {isAiLoading ? "MENGANALISIS DATA..." : "MINTA STRATEGI AI"}
+            </button>
+        ) : (
+            <div className="bg-gradient-to-br from-indigo-900/80 to-purple-900/80 border-2 border-indigo-500/50 rounded-2xl p-5 relative animate-in fade-in slide-in-from-top-4 shadow-2xl">
+                <div className="flex items-start gap-4">
+                    <div className="p-3 bg-indigo-500/20 rounded-xl text-indigo-300 border border-indigo-500/30">
+                        <Bot size={28} />
+                    </div>
+                    <div>
+                        <h4 className="font-bold text-indigo-300 text-xs uppercase mb-1 tracking-wider">STRATEGI JITU (AI)</h4>
+                        <p className="text-sm font-medium text-gray-100 leading-relaxed whitespace-pre-line">{aiAdvice}</p>
+                    </div>
+                </div>
+                <button 
+                    onClick={() => { setAiAdvice(null); vibrate(10); }}
+                    className="absolute top-3 right-3 p-2 bg-black/20 rounded-full text-gray-400 hover:text-white hover:bg-black/40 transition-colors"
+                >
+                    <X size={14} />
+                </button>
+            </div>
+        )}
       </div>
 
       {/* 2. INTELLIGENT RADAR LIST */}

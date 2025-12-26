@@ -1,13 +1,21 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Hotspot, TimeState, DailyFinancial, GarageData } from '../types';
 import { isWithinTimeWindow, calculateDistance, getTimeDifference, isNightTime } from '../utils';
-import { toggleValidation, getShiftStart, resetShiftStart, getHotspots, getTodayFinancials, getGarageData } from '../services/storage';
+import { toggleValidation, getShiftStart, getHotspots, getTodayFinancials, getGarageData } from '../services/storage';
 import { CATEGORY_COLORS } from '../constants';
-import { Navigation, CloudRain, Sun, Coffee, ThumbsUp, ThumbsDown, MapPin, AlertTriangle, Wrench, ArrowRight } from 'lucide-react';
+import { Navigation, CloudRain, Sun, Coffee, ThumbsUp, ThumbsDown, MapPin, Wrench, BarChart3 } from 'lucide-react';
 
 interface RadarViewProps {
   hotspots: Hotspot[];
   currentTime: TimeState;
+}
+
+// Extend Hotspot type locally for scoring
+interface ScoredHotspot extends Hotspot {
+    distance: number;
+    score: number;
+    isMaintenance?: boolean;
+    matchReason?: string;
 }
 
 const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, currentTime }) => {
@@ -42,8 +50,8 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         const diff = (new Date().getTime() - getShiftStart().getTime()) / 1000 / 60 / 60;
         setHoursOnline(diff);
         setFinancials(getTodayFinancials());
-        setGarage(getGarageData()); // Keep garage data fresh for alerts
-    }, 60000); // Check every minute
+        setGarage(getGarageData());
+    }, 60000); 
     return () => clearInterval(interval);
   }, [initialHotspots]);
 
@@ -52,120 +60,113 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
       setLocalHotspots(getHotspots());
   };
   
-  // ==========================================
-  // THE BRAIN TEST: ALGORITHM IMPLEMENTATION
-  // ==========================================
-  const predictions = useMemo(() => {
-    // 1. Time Filtering (Standard)
-    let filtered = localHotspots.filter(h => {
-      if (h.day !== currentTime.dayName) return false;
-      return isWithinTimeWindow(h.predicted_hour, currentTime.timeString);
-    });
-
-    // 2. Feedback Loop Filter
-    const todayStr = currentTime.fullDate.toISOString().split('T')[0];
-    filtered = filtered.filter(h => {
-        const todayVal = h.validations?.find(v => v.date === todayStr);
-        return !(todayVal && todayVal.isAccurate === false);
-    });
-
-    // 3. RAIN MODE (Strict Filtering)
-    if (isRainMode) {
-        // HIDE Bike, Commercial, Education, Gov/Facility, Transport Hub
-        // Only show Delivery, Food, Logistics, etc.
-        filtered = filtered.filter(h => 
-            !['Bike', 'Commercial', 'Education', 'Gov/Facility', 'Transport Hub', 'Residential'].includes(h.category)
-        );
-    }
-
-    // 4. Financial Gap Analysis
-    const currentHour = currentTime.fullDate.getHours();
-    const isBehindTarget = financials && (financials.netProfit < (financials.target * 0.5)) && currentHour >= 14;
-
-    if (isBehindTarget) {
-        filtered = filtered.map(h => {
-            if (['Mall/Lifestyle', 'Transport Hub', 'Culinary Night'].includes(h.category)) {
-                return { ...h, notes: `[KEJAR TARGET] ${h.notes}` };
-            }
-            return h;
-        });
-    }
-
-    // 5. MAINTENANCE INJECTION (ASSET CHECK)
-    let maintenanceSpot: (Hotspot & { isMaintenance?: boolean }) | null = null;
-    if (garage) {
-        const kmDiff = garage.currentOdometer - garage.lastOilChangeKm;
-        if (kmDiff >= 2000) {
-            // Find closest Service spot
-            const serviceSpots = localHotspots.filter(h => h.category === 'Service' || h.notes.toLowerCase().includes('bengkel'));
-            if (serviceSpots.length > 0) {
-                maintenanceSpot = { 
-                    ...serviceSpots[0], 
-                    isMaintenance: true, 
-                    notes: `⚠️ PERINGATAN: OLI SUDAH PAKAI ${kmDiff} KM! Ganti sekarang.`,
-                    origin: "⚠️ " + serviceSpots[0].origin
-                };
-            }
-        }
-    }
-
-    // 6. Calculate Distance
-    let mapped = filtered.map(h => {
-        const dist = userLocation ? calculateDistance(userLocation.lat, userLocation.lng, h.lat, h.lng) : 0;
-        return { ...h, distance: dist };
-    });
-
-    if (userLocation) {
-        // Filter > 10km unless it's High Value
-        mapped = mapped.filter(h => h.distance <= 10 || ['Mall/Lifestyle', 'Transport Hub'].includes(h.category));
-    }
-
-    // 7. SORTING (Precision Sort)
-    mapped.sort((a, b) => {
-        // A. Maintenance Alert ALWAYS First
-        if ((a as any).isMaintenance) return -1;
-        if ((b as any).isMaintenance) return 1;
-
-        // B. Contextual Priority
-        let scoreA = 0;
-        let scoreB = 0;
-
-        if (isBehindTarget) {
-             if (a.notes.includes('[KEJAR TARGET]')) scoreA += 5;
-             if (b.notes.includes('[KEJAR TARGET]')) scoreB += 5;
-        }
-
-        if (scoreA !== scoreB) return scoreB - scoreA;
-
-        // C. Time Precision (The closest minute match wins)
-        const diffA = getTimeDifference(a.predicted_hour, currentTime.timeString);
-        const diffB = getTimeDifference(b.predicted_hour, currentTime.timeString);
-        if (Math.abs(diffA - diffB) > 10) { // If difference is significant (>10 mins), prioritize time
-            return diffA - diffB;
-        }
-
-        // D. Distance
-        return a.distance - b.distance;
-    });
-
-    if (maintenanceSpot) {
-        const dist = userLocation ? calculateDistance(userLocation.lat, userLocation.lng, maintenanceSpot.lat, maintenanceSpot.lng) : 0;
-        const spotWithDist = { ...maintenanceSpot, distance: dist };
-        if (!mapped.find(h => h.id === spotWithDist.id)) {
-            mapped.unshift(spotWithDist);
-        } else {
-            mapped = mapped.filter(h => h.id !== spotWithDist.id);
-            mapped.unshift(spotWithDist);
-        }
-    }
-
-    return mapped;
-
-  }, [localHotspots, currentTime, isRainMode, hoursOnline, financials, userLocation, garage]);
-
   const handleNavigate = (lat: number, lng: number) => {
     window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
   };
+
+  // ==========================================
+  // ALGORITMA CERDAS: SCORING & FILTERING
+  // ==========================================
+  const predictions: ScoredHotspot[] = useMemo(() => {
+    const todayStr = currentTime.fullDate.toISOString().split('T')[0];
+    const currentHour = currentTime.fullDate.getHours();
+    
+    // Status Keuangan
+    const isBehindTarget = financials && (financials.netProfit < (financials.target * 0.5)) && currentHour >= 14;
+
+    // Radius Constraint (Dinari)
+    const MAX_RADIUS_KM = isRainMode ? 4.0 : 8.0; // Saat hujan, max 4km. Normal 8km.
+    const MAX_RADIUS_KEJAR_TARGET = 12.0; // Kalau lagi kejar target, rela jauh.
+
+    let scoredSpots: ScoredHotspot[] = localHotspots.map(h => {
+        const dist = userLocation ? calculateDistance(userLocation.lat, userLocation.lng, h.lat, h.lng) : 0;
+        return { ...h, distance: dist, score: 0 };
+    });
+
+    // FILTER 1: HARD FILTERS (Day, Validation, Maintenance)
+    scoredSpots = scoredSpots.filter(h => {
+        // Must match day
+        if (h.day !== currentTime.dayName) return false;
+        
+        // Exclude invalidated spots for today
+        const todayVal = h.validations?.find(v => v.date === todayStr);
+        if (todayVal && todayVal.isAccurate === false) return false;
+
+        return true;
+    });
+
+    // FILTER 2: RAIN MODE INTELLIGENCE
+    if (isRainMode) {
+        scoredSpots = scoredSpots.filter(h => {
+            // Saat hujan: Sembunyikan 'Bike' (Penumpang), Pendidikan, Fasilitas Umum
+            // Fokus ke: Food, Delivery, Logistics, Shop
+            const bannedInRain = ['Bike', 'Education', 'Gov/Facility', 'Transport Hub', 'Education/Office'];
+            return !bannedInRain.includes(h.category);
+        });
+    }
+
+    // SCORING ENGINE
+    scoredSpots = scoredSpots.map(h => {
+        let score = 100; // Base Score
+        let matchReason = "Sesuai Jadwal";
+
+        // A. Time Scoring
+        // We look for spots within -30 mins to +90 mins of predicted hour
+        const timeDiff = getTimeDifference(h.predicted_hour, currentTime.timeString);
+        
+        if (timeDiff > 90) {
+            score = -100; // Too far in time, kill it
+        } else {
+            // Penalty for time difference: -1 point per minute off
+            score -= (timeDiff * 0.8);
+        }
+
+        // B. Distance Scoring
+        // Heavy penalty for distance
+        if (h.distance > (isBehindTarget ? MAX_RADIUS_KEJAR_TARGET : MAX_RADIUS_KM)) {
+            score = -100; // Too far, kill it
+        } else {
+            // -5 points per KM
+            score -= (h.distance * 5);
+        }
+
+        // C. Rain Mode Bonus (Shelter/Mall)
+        if (isRainMode && ['Mall/Lifestyle', 'Resto', 'Culinary'].includes(h.category)) {
+            score += 15;
+            matchReason = "Spot Indoor (Hujan)";
+        }
+
+        // D. Financial Context Bonus
+        if (isBehindTarget) {
+            if (['Mall/Lifestyle', 'Transport Hub', 'Culinary Night'].includes(h.category)) {
+                score += 20;
+                matchReason = "Potensi Orderan Besar";
+            }
+        }
+
+        // E. Maintenance Injection
+        if (garage) {
+            const kmDiff = garage.currentOdometer - garage.lastOilChangeKm;
+            if (kmDiff >= 2000 && (h.category === 'Service' || h.notes.toLowerCase().includes('bengkel'))) {
+                score = 200; // FORCE TOP PRIORITY
+                h.isMaintenance = true;
+                matchReason = "DARURAT SERVIS";
+            }
+        }
+
+        return { ...h, score: Math.round(score), matchReason };
+    });
+
+    // FILTER 3: Remove low scores
+    scoredSpots = scoredSpots.filter(h => h.score > 40); // Only relevant spots
+
+    // SORTING: Highest Score First
+    scoredSpots.sort((a, b) => b.score - a.score);
+
+    // LIMIT: Top 7 only to prevent confusion
+    return scoredSpots.slice(0, 7);
+
+  }, [localHotspots, currentTime, isRainMode, financials, userLocation, garage]);
 
   const isNight = isNightTime(currentTime.fullDate);
 
@@ -188,7 +189,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
 
             <button 
                 onClick={() => setIsRainMode(!isRainMode)}
-                className={`flex flex-col items-center justify-center px-4 py-2 rounded-xl transition-all border ${isRainMode ? 'bg-blue-900/80 border-blue-400 text-blue-200 shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'bg-gray-800 border-gray-700 text-gray-400'}`}
+                className={`flex flex-col items-center justify-center px-4 py-2 rounded-xl transition-all border ${isRainMode ? 'bg-blue-600 border-blue-400 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'bg-gray-800 border-gray-700 text-gray-400'}`}
             >
                 {isRainMode ? <CloudRain size={20} className="animate-bounce" /> : <Sun size={20} />}
                 <span className="text-[10px] font-bold mt-1">{isRainMode ? 'HUJAN' : 'CERAH'}</span>
@@ -217,10 +218,10 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
             </div>
             <p className="text-gray-400 mt-2 text-xs font-medium">
                 {isRainMode 
-                    ? "MODE HUJAN: Fokus Food & Delivery. Bike disembunyikan." 
+                    ? "MODE HUJAN AKTIF: Radius max 4KM. Bike disembunyikan." 
                     : predictions.length > 0 
-                        ? `${predictions.length} peluang di sekitar Anda.` 
-                        : "Belum ada pola spesifik. Coba menu Peta."
+                        ? `${predictions.length} rekomendasi terbaik (Max 8KM).` 
+                        : "Tidak ada spot relevan dalam radius 8KM."
                 }
             </p>
         </div>
@@ -241,8 +242,11 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         ) : (
             <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-8 text-center flex flex-col items-center justify-center min-h-[200px]">
                  <Coffee size={48} className="text-gray-600 mb-4" />
-                 <h3 className="text-xl font-bold text-gray-300">Zona Tenang</h3>
-                 <p className="text-gray-500 text-sm mt-2 max-w-xs">Tidak ada data historis dalam radius waktu 60 menit. Waktunya istirahat atau cek Peta Panas.</p>
+                 <h3 className="text-xl font-bold text-gray-300">Radar Sepi</h3>
+                 <p className="text-gray-500 text-sm mt-2 max-w-xs">
+                     Tidak ada titik yang cocok dengan algoritma saat ini (Skor rendah atau terlalu jauh). 
+                     {isRainMode && " Coba matikan Mode Hujan jika cuaca sudah reda."}
+                 </p>
             </div>
         )}
       </div>
@@ -250,9 +254,9 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
   );
 };
 
-// Insight Card Component - Optimized for "At a Glance" reading
+// Insight Card Component
 const HotspotCard: React.FC<{ 
-    spot: Hotspot & { distance?: number, isMaintenance?: boolean }; 
+    spot: ScoredHotspot; 
     onNavigate: (lat: number, lng: number) => void; 
     onValidate: (id: string, isAccurate: boolean) => void;
     currentDate: string;
@@ -277,41 +281,54 @@ const HotspotCard: React.FC<{
             )}
 
             <div className="p-5">
-                {/* 1. Header: TIME (The most important context) */}
+                {/* 1. Header: TIME & SCORE */}
                 <div className="flex justify-between items-center mb-3">
                     <div className="flex items-center gap-2">
                          <span className={`px-3 py-1.5 rounded-lg text-lg font-extrabold text-white border ${isMaintenance ? 'bg-red-800 border-red-500' : 'bg-gray-800 border-gray-700'}`}>
                             {spot.predicted_hour}
                         </span>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 bg-black/30 px-2 py-1 rounded">
-                            {spot.category}
-                        </span>
+                        {/* Relevance Badge */}
+                        <div className="flex items-center gap-1 px-2 py-1 rounded bg-gray-800 border border-gray-700">
+                             <BarChart3 size={12} className={spot.score > 80 ? 'text-green-400' : 'text-yellow-400'} />
+                             <span className={`text-[10px] font-bold ${spot.score > 80 ? 'text-green-400' : 'text-yellow-400'}`}>
+                                Skor: {spot.score}%
+                             </span>
+                        </div>
                     </div>
                     {spot.distance !== undefined && (
-                        <div className="flex items-center gap-1 text-cyan-400 font-mono font-bold text-sm bg-cyan-900/10 px-2 py-1 rounded">
+                        <div className={`flex items-center gap-1 font-mono font-bold text-sm px-2 py-1 rounded ${spot.distance > 5 ? 'text-amber-400 bg-amber-900/10' : 'text-cyan-400 bg-cyan-900/10'}`}>
                             <MapPin size={14} />
                             {spot.distance} km
                         </div>
                     )}
                 </div>
                 
-                {/* 2. Content: LOCATION NAME (Huge Typography) */}
-                <h3 className={`text-3xl font-extrabold leading-none mb-3 tracking-tight ${isMaintenance ? 'text-red-400' : 'text-white'}`}>
+                {/* 2. Content: LOCATION NAME */}
+                <h3 className={`text-2xl font-extrabold leading-tight mb-1 tracking-tight ${isMaintenance ? 'text-red-400' : 'text-white'}`}>
                     {spot.origin}
                 </h3>
+
+                <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 bg-black/30 px-2 py-1 rounded border border-gray-700">
+                        {spot.category}
+                    </span>
+                    <span className="text-[10px] italic text-gray-500">
+                        • {spot.matchReason}
+                    </span>
+                </div>
                 
-                {/* 3. Notes (De-emphasized, concise) */}
-                <p className={`text-xs mb-5 leading-relaxed line-clamp-2 ${isMaintenance ? 'text-white font-bold bg-red-900/30 p-2 rounded' : 'text-gray-500'}`}>
+                {/* 3. Notes */}
+                <p className={`text-xs mb-5 leading-relaxed line-clamp-2 ${isMaintenance ? 'text-white font-bold bg-red-900/30 p-2 rounded' : 'text-gray-400'}`}>
                     {spot.notes}
                 </p>
                 
-                {/* 4. Actions: Large Touch Targets (Thumb Zone) */}
+                {/* 4. Actions */}
                 <div className="grid grid-cols-[1fr_auto] gap-3 items-center pt-2">
                     <button 
                         onClick={() => onNavigate(spot.lat, spot.lng)}
-                        className={`h-14 font-extrabold text-lg rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg ${isMaintenance ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-white hover:bg-gray-100 text-black'}`}
+                        className={`h-12 font-extrabold text-sm rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg ${isMaintenance ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-gray-100 hover:bg-white text-black'}`}
                     >
-                        <Navigation size={24} />
+                        <Navigation size={18} />
                         NAVIGASI
                     </button>
                     
@@ -320,16 +337,16 @@ const HotspotCard: React.FC<{
                          <button 
                             onClick={() => onValidate(spot.id, true)}
                             disabled={isValidated}
-                            className={`h-14 w-14 flex items-center justify-center rounded-xl border-2 font-bold transition-all ${isValidated && validation?.isAccurate ? 'bg-green-900/50 border-green-500 text-green-400' : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'}`}
+                            className={`h-12 w-12 flex items-center justify-center rounded-xl border-2 font-bold transition-all ${isValidated && validation?.isAccurate ? 'bg-green-900/50 border-green-500 text-green-400' : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'}`}
                         >
-                            <ThumbsUp size={24} />
+                            <ThumbsUp size={20} />
                         </button>
                         <button 
                             onClick={() => onValidate(spot.id, false)}
                             disabled={isValidated}
-                            className={`h-14 w-14 flex items-center justify-center rounded-xl border-2 font-bold transition-all ${isValidated && !validation?.isAccurate ? 'bg-red-900/50 border-red-500 text-red-400' : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'}`}
+                            className={`h-12 w-12 flex items-center justify-center rounded-xl border-2 font-bold transition-all ${isValidated && !validation?.isAccurate ? 'bg-red-900/50 border-red-500 text-red-400' : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'}`}
                         >
-                            <ThumbsDown size={24} />
+                            <ThumbsDown size={20} />
                         </button>
                     </div>
                 </div>

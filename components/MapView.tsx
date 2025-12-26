@@ -36,25 +36,25 @@ const MapView: React.FC<MapViewProps> = ({ hotspots }) => {
   }, []);
 
   return (
-    <div className="h-full w-full relative bg-gray-900">
+    <div className="h-full w-full relative bg-gray-100">
       <MapContainer 
         center={userLocation} 
-        zoom={13} 
-        style={{ height: '100%', width: '100%', zIndex: 0, background: '#111827' }}
+        zoom={14} 
+        style={{ height: '100%', width: '100%', zIndex: 0 }}
       >
-        {/* Dark Matter Tiles for Driver Eye Comfort */}
+        {/* LIGHT MODE TILES: CartoDB Voyager - High Contrast, Clean, Very Readable */}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
         />
         
         <MapUpdater center={userLocation} />
 
-        {/* User Location Marker */}
+        {/* User Location Marker - Blue Pulse */}
         <CircleMarker 
             center={userLocation} 
             radius={8} 
-            pathOptions={{ color: 'white', fillColor: '#3b82f6', fillOpacity: 1, weight: 3 }}
+            pathOptions={{ color: 'white', fillColor: '#2563EB', fillOpacity: 1, weight: 3 }}
         >
              <Popup className="custom-popup">
                 <div className="text-gray-900 font-bold">Lokasi Anda</div>
@@ -68,10 +68,10 @@ const MapView: React.FC<MapViewProps> = ({ hotspots }) => {
                 center={[spot.lat, spot.lng]}
                 radius={8}
                 pathOptions={{
-                    color: CATEGORY_COLORS[spot.category] || CATEGORY_COLORS['Other'],
+                    color: '#FFFFFF', // White stroke for contrast against map
                     fillColor: CATEGORY_COLORS[spot.category] || CATEGORY_COLORS['Other'],
-                    fillOpacity: 0.8,
-                    weight: 0 // No border for cleaner look on dark map
+                    fillOpacity: 0.9,
+                    weight: 2 // Thicker border to make it pop
                 }}
             >
                 <Popup className="custom-popup">
@@ -84,7 +84,7 @@ const MapView: React.FC<MapViewProps> = ({ hotspots }) => {
                         <p className="text-xs text-gray-600 mb-3 line-clamp-2">{spot.notes}</p>
                         <button 
                             onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}`, '_blank')}
-                            className="w-full flex justify-center items-center gap-1.5 bg-gray-900 hover:bg-gray-700 text-white text-xs font-bold py-2 rounded transition-colors"
+                            className="w-full flex justify-center items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 rounded transition-colors"
                         >
                             <Navigation size={12} />
                             Buka Google Maps
@@ -95,25 +95,29 @@ const MapView: React.FC<MapViewProps> = ({ hotspots }) => {
         ))}
       </MapContainer>
 
-      {/* Legend Overlay - Dark Mode */}
-      <div className="absolute top-4 right-4 bg-gray-900/90 backdrop-blur-md border border-gray-700 p-3 rounded-lg shadow-xl z-[400] text-xs max-h-48 overflow-y-auto">
-        <h4 className="font-bold mb-2 text-gray-300">Legenda</h4>
-        <div className="space-y-1.5 text-gray-400">
+      {/* Legend Overlay - Light Mode optimized */}
+      <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-md border border-gray-200 p-3 rounded-lg shadow-xl z-[400] text-xs max-h-48 overflow-y-auto">
+        <h4 className="font-bold mb-2 text-gray-800">Legenda Titik</h4>
+        <div className="space-y-1.5 text-gray-600">
             <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500 block shadow-[0_0_5px_rgba(239,68,68,0.5)]"></span>
+                <span className="w-3 h-3 rounded-full bg-[#FF5252] border border-gray-300 block"></span>
                 <span>Makanan</span>
             </div>
             <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-500 block shadow-[0_0_5px_rgba(59,130,246,0.5)]"></span>
+                <span className="w-3 h-3 rounded-full bg-[#18FFFF] border border-gray-300 block"></span>
                 <span>Penumpang</span>
             </div>
             <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-green-500 block shadow-[0_0_5px_rgba(34,197,94,0.5)]"></span>
+                <span className="w-3 h-3 rounded-full bg-[#69F0AE] border border-gray-300 block"></span>
                 <span>Logistik</span>
             </div>
             <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 block shadow-[0_0_5px_rgba(234,179,8,0.5)]"></span>
-                <span>Pasar/Shop</span>
+                <span className="w-3 h-3 rounded-full bg-[#FFD740] border border-gray-300 block"></span>
+                <span>Kawasan Bisnis</span>
+            </div>
+             <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-[#FF6E40] border border-gray-300 block"></span>
+                <span>Perumahan</span>
             </div>
         </div>
       </div>

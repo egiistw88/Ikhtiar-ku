@@ -1,3 +1,4 @@
+
 export interface Hotspot {
   id: string;
   date: string;
@@ -18,12 +19,23 @@ export interface Hotspot {
   }[];
 }
 
-export type ViewState = 'radar' | 'map' | 'journal' | 'wallet' | 'garage';
+export type ViewState = 'radar' | 'map' | 'journal' | 'wallet' | 'garage' | 'settings' | 'summary';
 
 export interface TimeState {
   dayName: string;
   timeString: string; // HH:mm
   fullDate: Date;
+}
+
+export interface UserSettings {
+  targetRevenue: number;
+  preferences: {
+    showFood: boolean;
+    showBike: boolean;
+    showSend: boolean;
+    showShop: boolean;
+  };
+  autoRainMode: boolean; // Future feature: auto detect weather
 }
 
 // Financial Types
@@ -40,15 +52,14 @@ export interface Transaction {
 
 export interface DailyFinancial {
   date: string;
-  grossIncome: number; // Omzet
-  operationalCost: number; // Bensin/Makan (Real)
-  maintenanceFund: number; // Tabungan Servis (Virtual 10%)
-  netProfit: number; // Bersih (Real)
-  allocations: { // Virtual Allocations based on Gross
-    kitchen: number; // 60%
-    operational: number; // 30%
-    service: number; // 10%
-  };
+  grossIncome: number; // Total Pendapatan
+  operationalCost: number; // Total Pengeluaran Real (Bensin, Makan)
+  netCash: number; // Uang di Tangan (Gross - Cost)
+  
+  // Virtual Allocations (Saran)
+  maintenanceFund: number; // 10% dari Gross (Penyusutan Mesin)
+  kitchen: number; // NetCash - MaintenanceFund (Sisa Bersih untuk Rumah)
+  
   target: number;
 }
 

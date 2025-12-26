@@ -1,13 +1,15 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Hotspot, TimeState, DailyFinancial, GarageData } from '../types';
+import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings } from '../types';
 import { isWithinTimeWindow, calculateDistance, getTimeDifference, isNightTime } from '../utils';
-import { toggleValidation, getShiftStart, getHotspots, getTodayFinancials, getGarageData } from '../services/storage';
+import { toggleValidation, getShiftStart, getHotspots, getTodayFinancials, getGarageData, getUserSettings } from '../services/storage';
 import { CATEGORY_COLORS } from '../constants';
-import { Navigation, CloudRain, Sun, Coffee, ThumbsUp, ThumbsDown, MapPin, Wrench, BarChart3 } from 'lucide-react';
+import { Navigation, CloudRain, Sun, Coffee, ThumbsUp, ThumbsDown, MapPin, Wrench, BarChart3, Settings as SettingsIcon } from 'lucide-react';
 
 interface RadarViewProps {
   hotspots: Hotspot[];
   currentTime: TimeState;
+  onOpenSettings: () => void;
+  onOpenSummary: (hours: number, finance: DailyFinancial | null) => void;
 }
 
 // Extend Hotspot type locally for scoring
@@ -18,7 +20,7 @@ interface ScoredHotspot extends Hotspot {
     matchReason?: string;
 }
 
-const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, currentTime }) => {
+const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, currentTime, onOpenSettings, onOpenSummary }) => {
   const [localHotspots, setLocalHotspots] = useState<Hotspot[]>(initialHotspots);
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
   const [isRainMode, setIsRainMode] = useState(false);
@@ -26,6 +28,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
   const [hoursOnline, setHoursOnline] = useState(0);
   const [financials, setFinancials] = useState<DailyFinancial | null>(null);
   const [garage, setGarage] = useState<GarageData | null>(null);
+  const [settings, setSettings] = useState<UserSettings>(getUserSettings());
 
   // Get Location on Mount
   useEffect(() => {
@@ -44,6 +47,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
     setFinancials(getTodayFinancials());
     setGarage(getGarageData());
     setShiftStart(getShiftStart());
+    setSettings(getUserSettings());
 
     const interval = setInterval(() => {
         setShiftStart(getShiftStart());
@@ -51,6 +55,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         setHoursOnline(diff);
         setFinancials(getTodayFinancials());
         setGarage(getGarageData());
+        setSettings(getUserSettings());
     }, 60000); 
     return () => clearInterval(interval);
   }, [initialHotspots]);
@@ -71,8 +76,10 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
     const todayStr = currentTime.fullDate.toISOString().split('T')[0];
     const currentHour = currentTime.fullDate.getHours();
     
-    // Status Keuangan
-    const isBehindTarget = financials && (financials.netProfit < (financials.target * 0.5)) && currentHour >= 14;
+    // Status Keuangan: Check if we are behind based on Real Net Cash
+    // Jika netCash kurang dari 50% target dan sudah sore, driver butuh orderan besar/jauh.
+    const currentNet = financials?.netCash || 0;
+    const isBehindTarget = (currentNet < (settings.targetRevenue * 0.5)) && currentHour >= 14;
 
     // Radius Constraint (Dinari)
     const MAX_RADIUS_KM = isRainMode ? 4.0 : 8.0; // Saat hujan, max 4km. Normal 8km.
@@ -95,7 +102,22 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         return true;
     });
 
-    // FILTER 2: RAIN MODE INTELLIGENCE
+    // FILTER 2: USER PREFERENCES (From Settings)
+    scoredSpots = scoredSpots.filter(h => {
+        const cat = h.category;
+        const type = h.type;
+        const prefs = settings.preferences;
+
+        // Broad category matching logic
+        if (!prefs.showFood && (cat === 'Culinary' || cat === 'Culinary Night')) return false;
+        if (!prefs.showBike && (type === 'Bike' || cat === 'Transport Hub' || cat === 'Education' || cat === 'Education/Office')) return false;
+        if (!prefs.showSend && (type === 'Bike Delivery' || cat === 'Logistics')) return false;
+        if (!prefs.showShop && (cat === 'Market' || cat === 'Mall/Lifestyle' || cat === 'Residential/Shop')) return false;
+        
+        return true;
+    });
+
+    // FILTER 3: RAIN MODE INTELLIGENCE
     if (isRainMode) {
         scoredSpots = scoredSpots.filter(h => {
             // Saat hujan: Sembunyikan 'Bike' (Penumpang), Pendidikan, Fasilitas Umum
@@ -131,7 +153,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         }
 
         // C. Rain Mode Bonus (Shelter/Mall)
-        if (isRainMode && ['Mall/Lifestyle', 'Resto', 'Culinary'].includes(h.category)) {
+        if (isRainMode && ['Mall/Lifestyle', 'Culinary'].includes(h.category)) {
             score += 15;
             matchReason = "Spot Indoor (Hujan)";
         }
@@ -157,7 +179,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         return { ...h, score: Math.round(score), matchReason };
     });
 
-    // FILTER 3: Remove low scores
+    // FILTER 4: Remove low scores
     scoredSpots = scoredSpots.filter(h => h.score > 40); // Only relevant spots
 
     // SORTING: Highest Score First
@@ -166,15 +188,18 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
     // LIMIT: Top 7 only to prevent confusion
     return scoredSpots.slice(0, 7);
 
-  }, [localHotspots, currentTime, isRainMode, financials, userLocation, garage]);
+  }, [localHotspots, currentTime, isRainMode, financials, userLocation, garage, settings]);
 
   const isNight = isNightTime(currentTime.fullDate);
+  // Progress Bar visual logic based on Net Cash vs Target
+  const currentNetCash = financials?.netCash || 0;
+  const progressPercent = Math.max(0, Math.min(100, (currentNetCash / settings.targetRevenue) * 100));
 
   return (
     <div className="pb-24 pt-4 px-4 space-y-6">
       
       {/* Header Dashboard */}
-      <div className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden border border-gray-700 transition-colors ${financials && financials.netProfit < (financials.target * 0.5) && currentTime.fullDate.getHours() > 17 ? 'bg-amber-900/40 border-amber-600' : 'bg-[#1e1e1e]'}`}>
+      <div className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden border border-gray-700 transition-colors ${currentNetCash < (settings.targetRevenue * 0.3) && currentTime.fullDate.getHours() > 17 ? 'bg-amber-900/40 border-amber-600' : 'bg-[#1e1e1e]'}`}>
         
         {/* Night Mode Indicator */}
         {isNight && <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.5)]"></div>}
@@ -182,18 +207,25 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         <div className="flex justify-between items-start mb-4 relative z-10">
             <div className="flex flex-col">
                 <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Durasi On-Bid</span>
-                <span className={`text-2xl font-mono font-bold ${hoursOnline > 4 ? 'text-rose-500 animate-pulse' : 'text-white'}`}>
+                <span className={`text-2xl font-mono font-bold ${hoursOnline > 12 ? 'text-rose-500 animate-pulse' : 'text-white'}`}>
                     {Math.floor(hoursOnline)}<span className="text-sm">j</span> {Math.round((hoursOnline % 1) * 60)}<span className="text-sm">m</span>
                 </span>
             </div>
 
-            <button 
-                onClick={() => setIsRainMode(!isRainMode)}
-                className={`flex flex-col items-center justify-center px-4 py-2 rounded-xl transition-all border ${isRainMode ? 'bg-blue-600 border-blue-400 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'bg-gray-800 border-gray-700 text-gray-400'}`}
-            >
-                {isRainMode ? <CloudRain size={20} className="animate-bounce" /> : <Sun size={20} />}
-                <span className="text-[10px] font-bold mt-1">{isRainMode ? 'HUJAN' : 'CERAH'}</span>
-            </button>
+            <div className="flex gap-2">
+                 <button 
+                    onClick={onOpenSettings}
+                    className="flex items-center justify-center p-2 rounded-xl bg-gray-800 border border-gray-700 text-gray-400 hover:text-white hover:bg-gray-700 transition-all"
+                >
+                    <SettingsIcon size={20} />
+                </button>
+                <button 
+                    onClick={() => setIsRainMode(!isRainMode)}
+                    className={`flex items-center justify-center p-2 rounded-xl transition-all border ${isRainMode ? 'bg-blue-600 border-blue-400 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'bg-gray-800 border-gray-700 text-gray-400'}`}
+                >
+                    {isRainMode ? <CloudRain size={20} className="animate-bounce" /> : <Sun size={20} />}
+                </button>
+            </div>
         </div>
 
         {/* Progress Bar Target */}
@@ -201,29 +233,39 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
             <div className="relative z-10 mb-4 bg-black/40 p-3 rounded-lg flex items-center gap-3 border border-gray-700/50">
                  <div className="flex-1">
                     <div className="flex justify-between text-[10px] text-gray-400 font-bold uppercase mb-1">
-                        <span>Target Harian</span>
-                        <span>{Math.round((financials.netProfit / financials.target) * 100)}%</span>
+                        <span>Target Bersih</span>
+                        <span>{Math.round(progressPercent)}%</span>
                     </div>
                     <div className="w-full bg-gray-700 h-2 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all ${financials.netProfit < (financials.target * 0.5) && currentTime.fullDate.getHours() > 17 ? 'bg-amber-500' : 'bg-cyan-400'}`} style={{ width: `${Math.min(100, (financials.netProfit / financials.target) * 100)}%`}}></div>
+                        <div className={`h-full rounded-full transition-all ${progressPercent < 30 ? 'bg-red-500' : 'bg-cyan-400'}`} style={{ width: `${progressPercent}%`}}></div>
                     </div>
                  </div>
             </div>
         )}
 
-        <div className="relative z-10">
-            <div className="flex items-baseline gap-2">
-                <p className="text-5xl font-extrabold tracking-tighter text-white">{currentTime.timeString}</p>
-                <p className="text-lg text-gray-400 font-bold uppercase">{currentTime.dayName}</p>
+        <div className="relative z-10 flex justify-between items-end">
+            <div>
+                <div className="flex items-baseline gap-2">
+                    <p className="text-5xl font-extrabold tracking-tighter text-white">{currentTime.timeString}</p>
+                    <p className="text-lg text-gray-400 font-bold uppercase">{currentTime.dayName}</p>
+                </div>
+                <p className="text-gray-400 mt-2 text-xs font-medium">
+                    {isRainMode 
+                        ? "MODE HUJAN: Menampilkan spot indoor & non-bike." 
+                        : predictions.length > 0 
+                            ? `${predictions.length} rekomendasi aktif.` 
+                            : "Tidak ada spot relevan."
+                    }
+                </p>
             </div>
-            <p className="text-gray-400 mt-2 text-xs font-medium">
-                {isRainMode 
-                    ? "MODE HUJAN AKTIF: Radius max 4KM. Bike disembunyikan." 
-                    : predictions.length > 0 
-                        ? `${predictions.length} rekomendasi terbaik (Max 8KM).` 
-                        : "Tidak ada spot relevan dalam radius 8KM."
-                }
-            </p>
+            
+            {/* TUTUP BUKU BUTTON */}
+            <button 
+                onClick={() => onOpenSummary(hoursOnline, financials)}
+                className="text-[10px] font-bold text-red-400 hover:text-red-300 border border-red-900 bg-red-900/20 px-3 py-1.5 rounded-lg"
+            >
+                TUTUP BUKU
+            </button>
         </div>
       </div>
 
@@ -244,8 +286,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
                  <Coffee size={48} className="text-gray-600 mb-4" />
                  <h3 className="text-xl font-bold text-gray-300">Radar Sepi</h3>
                  <p className="text-gray-500 text-sm mt-2 max-w-xs">
-                     Tidak ada titik yang cocok dengan algoritma saat ini (Skor rendah atau terlalu jauh). 
-                     {isRainMode && " Coba matikan Mode Hujan jika cuaca sudah reda."}
+                     Tidak ada titik yang cocok dengan filter Anda. Coba cek pengaturan atau matikan filter.
                  </p>
             </div>
         )}
@@ -264,7 +305,6 @@ const HotspotCard: React.FC<{
     
     const validation = spot.validations?.find(v => v.date === currentDate);
     const isValidated = !!validation;
-    
     const accentColor = CATEGORY_COLORS[spot.category] || '#EEEEEE';
     const isMaintenance = spot.isMaintenance;
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Transaction, DailyFinancial } from '../types';
 import { getTransactions, addTransaction, getTodayFinancials } from '../services/storage';
-import { Wallet, TrendingUp, TrendingDown, Wrench, PiggyBank, Target, Plus, Minus, Utensils, Fuel, Gauge, AlertCircle } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Wrench, PiggyBank, Target, Plus, Minus, Utensils, Fuel, Gauge, AlertCircle, Banknote } from 'lucide-react';
 
 const WalletView: React.FC = () => {
     const [summary, setSummary] = useState<DailyFinancial | null>(null);
@@ -52,58 +52,70 @@ const WalletView: React.FC = () => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
     };
 
-    const percentage = summary ? Math.min(100, Math.round((summary.netProfit / summary.target) * 100)) : 0;
+    // Calculate percentage based on NET CASH (Reality) vs Target
+    const percentage = summary ? Math.min(100, Math.round((summary.grossIncome / summary.target) * 100)) : 0;
+    const netCash = summary?.netCash || 0;
 
     return (
         <div className="pb-24 pt-4 px-4 space-y-6">
             
-            {/* HERO: DANA DAPUR (The most important number) */}
-            <div className="bg-[#1e1e1e] rounded-3xl p-6 shadow-2xl border-2 border-green-900/50 relative overflow-hidden">
-                <div className="absolute right-[-20px] top-[-20px] p-4 opacity-10 text-green-500">
-                    <Utensils size={180} />
+            {/* HERO: UANG DI TANGAN (Real Cash Flow) */}
+            <div className={`rounded-3xl p-6 shadow-2xl border-2 relative overflow-hidden transition-colors ${netCash >= 0 ? 'bg-[#1e1e1e] border-emerald-900/50' : 'bg-red-900/10 border-red-900'}`}>
+                <div className="absolute right-[-20px] top-[-20px] p-4 opacity-10 text-white">
+                    <Banknote size={180} />
                 </div>
                 
-                <h2 className="text-green-400 text-xs font-black uppercase tracking-widest mb-2 flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse shadow-[0_0_10px_#22c55e]"></div>
-                    DANA DAPUR (AMAN)
+                <h2 className="text-gray-400 text-xs font-black uppercase tracking-widest mb-2 flex items-center gap-2">
+                    {netCash >= 0 ? (
+                        <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_#10b981]"></div>
+                    ) : (
+                        <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse shadow-[0_0_10px_#ef4444]"></div>
+                    )}
+                    UANG DI TANGAN (BERSIH)
                 </h2>
-                <p className="text-6xl font-black text-white mb-2 tracking-tighter shadow-black drop-shadow-lg">
-                    {summary ? formatRupiah(summary.allocations.kitchen) : 'Rp0'}
+                <p className={`text-6xl font-black mb-2 tracking-tighter shadow-black drop-shadow-lg ${netCash >= 0 ? 'text-white' : 'text-red-500'}`}>
+                    {formatRupiah(netCash)}
                 </p>
                 <p className="text-xs text-gray-500 mb-8 max-w-[70%] font-medium">
-                    60% dari total omzet. Uang ini halal dan aman untuk dibawa pulang ke rumah.
+                    Ini adalah sisa uang nyata setelah dikurangi biaya bensin & makan hari ini.
                 </p>
 
-                {/* Sub-Allocations */}
+                {/* Sub-Allocations Suggestions */}
                 <div className="grid grid-cols-2 gap-3">
                     <div className="bg-black/40 p-3 rounded-xl border border-gray-700 backdrop-blur-sm">
-                         <div className="flex items-center gap-2 text-cyan-400 mb-1">
-                            <Fuel size={14} />
-                            <span className="text-[10px] uppercase font-bold">Ops (30%)</span>
+                         <div className="flex items-center gap-2 text-green-400 mb-1">
+                            <Utensils size={14} />
+                            <span className="text-[10px] uppercase font-bold">Dana Dapur</span>
                          </div>
-                        <p className="text-xl font-bold text-white">{summary ? formatRupiah(summary.allocations.operational) : '0'}</p>
+                        <p className="text-xl font-bold text-white">{summary ? formatRupiah(summary.kitchen) : '0'}</p>
                     </div>
                     <div className="bg-black/40 p-3 rounded-xl border border-gray-700 backdrop-blur-sm">
                          <div className="flex items-center gap-2 text-amber-400 mb-1">
-                            <Wrench size={14} />
-                            <span className="text-[10px] uppercase font-bold">Servis (10%)</span>
+                            <PiggyBank size={14} />
+                            <span className="text-[10px] uppercase font-bold">Wajib Sisih (10%)</span>
                          </div>
-                        <p className="text-xl font-bold text-white">{summary ? formatRupiah(summary.allocations.service) : '0'}</p>
+                        <p className="text-xl font-bold text-white">{summary ? formatRupiah(summary.maintenanceFund) : '0'}</p>
                     </div>
                 </div>
             </div>
 
-            {/* Total Gross Stats */}
-            <div className="flex justify-between items-center bg-gray-900 p-4 rounded-xl border border-gray-800">
-                <span className="text-xs text-gray-500 font-bold uppercase">Total Omzet Hari Ini</span>
-                <span className="text-xl font-mono font-bold text-gray-300">{summary ? formatRupiah(summary.grossIncome) : '0'}</span>
+            {/* Cash Flow Summary */}
+            <div className="grid grid-cols-2 gap-4">
+                 <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                    <span className="text-[10px] text-gray-500 font-bold uppercase block mb-1">Total Pendapatan</span>
+                    <span className="text-lg font-mono font-bold text-emerald-400">{summary ? formatRupiah(summary.grossIncome) : '0'}</span>
+                </div>
+                 <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                    <span className="text-[10px] text-gray-500 font-bold uppercase block mb-1">Total Pengeluaran</span>
+                    <span className="text-lg font-mono font-bold text-red-400">{summary ? formatRupiah(summary.operationalCost) : '0'}</span>
+                </div>
             </div>
 
             {/* Target Progress */}
             <div className="bg-[#1e1e1e] p-4 rounded-xl border border-gray-700">
                 <div className="flex justify-between items-end mb-2">
                     <div>
-                        <p className="text-[10px] text-gray-400 font-bold uppercase">Target Harian</p>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase">Target Omzet Harian</p>
                         <p className="text-xl font-bold text-emerald-400">{summary ? formatRupiah(summary.target) : '0'}</p>
                     </div>
                     <div className="text-right">
@@ -111,14 +123,8 @@ const WalletView: React.FC = () => {
                     </div>
                 </div>
                 <div className="w-full bg-gray-800 h-3 rounded-full overflow-hidden">
-                    <div className="bg-emerald-500 h-full rounded-full transition-all duration-500" style={{ width: `${percentage}%` }}></div>
+                    <div className="bg-cyan-500 h-full rounded-full transition-all duration-500" style={{ width: `${percentage}%` }}></div>
                 </div>
-                {summary && summary.netProfit < summary.target && (
-                     <div className="mt-3 flex items-center gap-2 text-xs font-bold text-amber-400 bg-amber-900/20 p-2.5 rounded-lg border border-amber-900/50">
-                        <AlertCircle size={14} />
-                        <span>Kurang {formatRupiah(summary.target - summary.netProfit)} lagi! Semangat!</span>
-                    </div>
-                )}
             </div>
 
             {/* Action Button - Giant Size */}

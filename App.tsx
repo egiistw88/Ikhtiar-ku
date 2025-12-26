@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ViewState, TimeState, Hotspot } from './types';
+import { ViewState, TimeState, Hotspot, DailyFinancial } from './types';
 import { getCurrentTimeInfo } from './utils';
 import { getHotspots } from './services/storage';
 import RadarView from './components/RadarView';
@@ -9,6 +9,8 @@ import WalletView from './components/WalletView';
 import GarageView from './components/GarageView';
 import SOSButton from './components/SOSButton';
 import SplashView from './components/SplashView';
+import SettingsView from './components/SettingsView';
+import ShiftSummary from './components/ShiftSummary';
 import BrandLogo from './components/BrandLogo';
 import { Radar, Map as MapIcon, PlusCircle, Wallet, Shield } from 'lucide-react';
 
@@ -17,6 +19,9 @@ const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('radar');
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [currentTime, setCurrentTime] = useState<TimeState>(getCurrentTimeInfo());
+  
+  // Summary State
+  const [summaryData, setSummaryData] = useState<{ hours: number, finance: DailyFinancial | null } | null>(null);
 
   // Initialization
   useEffect(() => {
@@ -37,10 +42,20 @@ const App: React.FC = () => {
       setView('radar'); // Go back to radar after saving
   };
 
+  const handleOpenSummary = (hours: number, finance: DailyFinancial | null) => {
+      setSummaryData({ hours, finance });
+      setView('summary');
+  };
+
   const renderContent = () => {
     switch (view) {
         case 'radar':
-            return <RadarView hotspots={hotspots} currentTime={currentTime} />;
+            return <RadarView 
+                hotspots={hotspots} 
+                currentTime={currentTime} 
+                onOpenSettings={() => setView('settings')}
+                onOpenSummary={handleOpenSummary}
+            />;
         case 'map':
             return <MapView hotspots={hotspots} currentTime={currentTime} />;
         case 'journal':
@@ -49,8 +64,16 @@ const App: React.FC = () => {
             return <WalletView />;
         case 'garage':
             return <GarageView />;
+        case 'settings':
+            return <SettingsView onBack={() => setView('radar')} />;
+        case 'summary':
+            return <ShiftSummary 
+                hoursOnline={summaryData?.hours || 0} 
+                financials={summaryData?.finance || null} 
+                onClose={() => setView('radar')} 
+            />;
         default:
-            return <RadarView hotspots={hotspots} currentTime={currentTime} />;
+            return <RadarView hotspots={hotspots} currentTime={currentTime} onOpenSettings={() => setView('settings')} onOpenSummary={handleOpenSummary} />;
     }
   };
 
@@ -80,49 +103,51 @@ const App: React.FC = () => {
       </header>
 
       {/* GLOBAL FLOATING SOS BUTTON */}
-      <SOSButton />
+      {view !== 'summary' && <SOSButton />}
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto relative scroll-smooth bg-[#121212]">
         {renderContent()}
       </main>
 
-      {/* Bottom Navigation */}
-      <nav className="h-[80px] bg-[#1a202c] border-t border-gray-800 flex justify-between items-center px-4 pb-2 z-50 shadow-[0_-4px_15px_rgba(0,0,0,0.5)]">
-        <NavButton 
-            active={view === 'radar'} 
-            onClick={() => setView('radar')} 
-            icon={<Radar size={24} />} 
-            label="Radar" 
-        />
-        <NavButton 
-            active={view === 'wallet'} 
-            onClick={() => setView('wallet')} 
-            icon={<Wallet size={24} />} 
-            label="Dompet" 
-        />
-        <div className="relative -top-8 group">
-            <div className="absolute inset-0 bg-emerald-500 rounded-full blur opacity-20 group-hover:opacity-40 transition-opacity"></div>
-             <button 
-                onClick={() => setView('journal')}
-                className="relative bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-full p-4 shadow-xl border-4 border-[#1a202c] transition-transform active:scale-95"
-            >
-                <PlusCircle size={32} />
-             </button>
-        </div>
-        <NavButton 
-            active={view === 'map'} 
-            onClick={() => setView('map')} 
-            icon={<MapIcon size={24} />} 
-            label="Peta" 
-        />
-         <NavButton 
-            active={view === 'garage'} 
-            onClick={() => setView('garage')} 
-            icon={<Shield size={24} />} 
-            label="Garasi" 
-        />
-      </nav>
+      {/* Bottom Navigation (Hidden in Fullscreen Views) */}
+      {view !== 'summary' && view !== 'settings' && (
+          <nav className="h-[80px] bg-[#1a202c] border-t border-gray-800 flex justify-between items-center px-4 pb-2 z-50 shadow-[0_-4px_15px_rgba(0,0,0,0.5)]">
+            <NavButton 
+                active={view === 'radar'} 
+                onClick={() => setView('radar')} 
+                icon={<Radar size={24} />} 
+                label="Radar" 
+            />
+            <NavButton 
+                active={view === 'wallet'} 
+                onClick={() => setView('wallet')} 
+                icon={<Wallet size={24} />} 
+                label="Dompet" 
+            />
+            <div className="relative -top-8 group">
+                <div className="absolute inset-0 bg-emerald-500 rounded-full blur opacity-20 group-hover:opacity-40 transition-opacity"></div>
+                 <button 
+                    onClick={() => setView('journal')}
+                    className="relative bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-full p-4 shadow-xl border-4 border-[#1a202c] transition-transform active:scale-95"
+                >
+                    <PlusCircle size={32} />
+                 </button>
+            </div>
+            <NavButton 
+                active={view === 'map'} 
+                onClick={() => setView('map')} 
+                icon={<MapIcon size={24} />} 
+                label="Peta" 
+            />
+             <NavButton 
+                active={view === 'garage'} 
+                onClick={() => setView('garage')} 
+                icon={<Shield size={24} />} 
+                label="Garasi" 
+            />
+          </nav>
+      )}
     </div>
   );
 };

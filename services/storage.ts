@@ -1,10 +1,10 @@
-import { Hotspot, Transaction, DailyFinancial, GarageData } from '../types';
+import { Hotspot, Transaction, DailyFinancial, GarageData, UserSettings } from '../types';
 import { INITIAL_DATA } from '../constants';
 
 const STORAGE_KEY = 'ikhtiar_ku_data_v1';
 const SHIFT_KEY = 'ikhtiar_ku_shift_start';
 const FINANCE_KEY = 'ikhtiar_ku_finance_v1';
-const TARGET_KEY = 'ikhtiar_ku_daily_target';
+const SETTINGS_KEY = 'ikhtiar_ku_settings_v1';
 const GARAGE_KEY = 'ikhtiar_ku_garage_v1';
 
 export const getHotspots = (): Hotspot[] => {
@@ -79,6 +79,7 @@ export const getShiftStart = (): Date => {
     return now;
 }
 
+// Reset shift timer for "Tutup Buku"
 export const resetShiftStart = (): Date => {
     const now = new Date();
     localStorage.setItem(SHIFT_KEY, now.toISOString());
@@ -86,17 +87,32 @@ export const resetShiftStart = (): Date => {
 }
 
 // ==========================================
+// PENGATURAN (SETTINGS)
+// ==========================================
+export const getUserSettings = (): UserSettings => {
+    const stored = localStorage.getItem(SETTINGS_KEY);
+    if (stored) return JSON.parse(stored);
+    
+    // Default Settings
+    return {
+        targetRevenue: 150000,
+        preferences: {
+            showFood: true,
+            showBike: true,
+            showSend: true,
+            showShop: true
+        },
+        autoRainMode: false
+    };
+}
+
+export const saveUserSettings = (settings: UserSettings): void => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+// ==========================================
 // FITUR DOMPET BERKAH (Financial Manager)
 // ==========================================
-
-export const getDailyTarget = (): number => {
-    const stored = localStorage.getItem(TARGET_KEY);
-    return stored ? parseInt(stored) : 150000; // Default target
-}
-
-export const setDailyTarget = (amount: number): void => {
-    localStorage.setItem(TARGET_KEY, amount.toString());
-}
 
 export const getTransactions = (): Transaction[] => {
     try {
@@ -123,6 +139,7 @@ export const addTransaction = (tx: Transaction): void => {
 export const getTodayFinancials = (): DailyFinancial => {
     const todayStr = new Date().toISOString().split('T')[0];
     const txs = getTransactions().filter(t => t.date === todayStr);
+    const settings = getUserSettings();
     
     let grossIncome = 0;
     let realOpsCost = 0;
@@ -135,22 +152,26 @@ export const getTodayFinancials = (): DailyFinancial => {
         }
     });
 
-    const allocations = {
-        kitchen: Math.round(grossIncome * 0.60),
-        operational: Math.round(grossIncome * 0.30),
-        service: Math.round(grossIncome * 0.10)
-    };
+    // LOGIKA BARU: REAL CASH FLOW
+    const netCash = grossIncome - realOpsCost;
 
-    const netProfit = grossIncome - realOpsCost - allocations.service;
+    // Saran Alokasi:
+    // 1. Tabungan Servis (Machine Wear & Tear) = 10% dari OMZET (Bukan Net). 
+    //    Mesin rusak itu pasti, tidak peduli driver untung atau rugi.
+    const maintenanceFund = Math.round(grossIncome * 0.10);
+
+    // 2. Dana Dapur (Take Home Pay) = Sisa uang di tangan setelah disisihkan untuk servis.
+    //    Jika NetCash minus (Nombok), maka Dapur 0.
+    const kitchen = Math.max(0, netCash - maintenanceFund);
 
     return {
         date: todayStr,
         grossIncome,
         operationalCost: realOpsCost,
-        maintenanceFund: allocations.service,
-        netProfit,
-        allocations,
-        target: getDailyTarget()
+        netCash,
+        maintenanceFund,
+        kitchen,
+        target: settings.targetRevenue
     };
 }
 

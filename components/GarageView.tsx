@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GarageData } from '../types';
 import { getGarageData, saveGarageData } from '../services/storage';
-import { Shield, Smartphone, PenTool, AlertCircle, Save } from 'lucide-react';
+import { Shield, Smartphone, PenTool, AlertCircle, Save, Settings } from 'lucide-react';
 
 const GarageView: React.FC = () => {
     const [data, setData] = useState<GarageData>(getGarageData());
@@ -25,15 +25,18 @@ const GarageView: React.FC = () => {
         const processed = {
             ...formData,
             currentOdometer: Number(formData.currentOdometer),
-            lastOilChangeKm: Number(formData.lastOilChangeKm)
+            lastOilChangeKm: Number(formData.lastOilChangeKm),
+            serviceInterval: Number(formData.serviceInterval) || 2000
         };
         saveGarageData(processed);
         setData(processed);
         setIsEditing(false);
     };
 
+    const interval = data.serviceInterval || 2000;
     const kmSinceOil = data.currentOdometer - data.lastOilChangeKm;
-    const oilHealth = Math.max(0, 100 - (kmSinceOil / 2000 * 100));
+    // Calculate percentage based on custom interval
+    const oilHealth = Math.max(0, 100 - (kmSinceOil / interval * 100));
     
     return (
         <div className="pt-4 px-4 space-y-6 pb-24">
@@ -96,20 +99,39 @@ const GarageView: React.FC = () => {
                             style={{ width: `${oilHealth}%` }}
                         ></div>
                     </div>
+                    
+                    <div className="mt-2 text-[10px] text-gray-500 flex justify-between">
+                         <span>Interval: {interval} km</span>
+                         <span>Terpakai: {kmSinceOil} km</span>
+                    </div>
+
                     {isEditing && (
-                        <div className="mt-2">
-                            <label className="text-[10px] text-gray-500">KM Terakhir Ganti Oli</label>
-                            <input 
-                                type="number"
-                                className="w-full bg-gray-900 border border-gray-700 p-2 rounded-lg text-white font-mono text-sm"
-                                value={formData.lastOilChangeKm}
-                                onChange={e => handleChange('lastOilChangeKm', e.target.value)}
-                            />
+                        <div className="mt-4 grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-[10px] text-gray-500 block mb-1">KM Terakhir Ganti</label>
+                                <input 
+                                    type="number"
+                                    className="w-full bg-gray-900 border border-gray-700 p-2 rounded-lg text-white font-mono text-sm"
+                                    value={formData.lastOilChangeKm}
+                                    onChange={e => handleChange('lastOilChangeKm', e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-gray-500 block mb-1">Interval (KM)</label>
+                                <input 
+                                    type="number"
+                                    className="w-full bg-gray-900 border border-gray-700 p-2 rounded-lg text-white font-mono text-sm"
+                                    value={formData.serviceInterval}
+                                    onChange={e => handleChange('serviceInterval', e.target.value)}
+                                    placeholder="2000"
+                                />
+                            </div>
                         </div>
                     )}
-                    {kmSinceOil > 2000 && !isEditing && (
-                        <div className="mt-2 flex items-center gap-2 text-app-danger text-xs font-bold bg-app-danger/10 p-2 rounded">
-                            <AlertCircle size={14} /> WAKTUNYA GANTI OLI!
+
+                    {kmSinceOil >= interval && !isEditing && (
+                        <div className="mt-3 flex items-center gap-2 text-app-danger text-xs font-bold bg-app-danger/10 p-3 rounded-xl border border-app-danger/30 animate-pulse">
+                            <AlertCircle size={16} /> WAKTUNYA GANTI OLI!
                         </div>
                     )}
                 </div>

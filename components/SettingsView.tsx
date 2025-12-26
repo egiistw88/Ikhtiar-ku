@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings } from '../types';
-import { getUserSettings, saveUserSettings, clearShiftState } from '../services/storage';
-import { Settings, Save, Coffee, Bike, Package, ShoppingBag, Target, ArrowLeft, RefreshCw, AlertTriangle } from 'lucide-react';
+import { getUserSettings, saveUserSettings, clearShiftState, createBackupString, restoreFromBackup } from '../services/storage';
+import { Settings, Save, Coffee, Bike, Package, ShoppingBag, Target, ArrowLeft, RefreshCw, AlertTriangle, Edit3, Download, Upload, CheckCircle } from 'lucide-react';
 
 interface SettingsViewProps {
     onBack: () => void;
+    onUpdateCondition: () => void;
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ onBack }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }) => {
     const [settings, setSettings] = useState<UserSettings>(getUserSettings());
     const [targetInput, setTargetInput] = useState<string>('');
+    const [restoreStatus, setRestoreStatus] = useState<string>('');
 
     useEffect(() => {
         setTargetInput(settings.targetRevenue.toString());
@@ -27,7 +29,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack }) => {
     const handleResetShift = () => {
         if (confirm("Reset kondisi tempur (Saldo/Bensin)? Anda harus input ulang dari awal.")) {
             clearShiftState();
-            // Force reload page to trigger PreRideSetup again logic in App.tsx
             window.location.reload();
         }
     };
@@ -40,6 +41,41 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack }) => {
                 [key]: !prev.preferences[key]
             }
         }));
+    };
+
+    // BACKUP LOGIC
+    const handleBackup = () => {
+        const backupData = createBackupString();
+        const blob = new Blob([backupData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const date = new Date().toISOString().split('T')[0];
+        link.download = `ikhtiarku_backup_${date}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    // RESTORE LOGIC
+    const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const content = ev.target?.result as string;
+            if (content) {
+                const success = restoreFromBackup(content);
+                if (success) {
+                    setRestoreStatus('Berhasil! Reloading...');
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    setRestoreStatus('Gagal: File korup/salah format.');
+                }
+            }
+        };
+        reader.readAsText(file);
     };
 
     return (
@@ -63,7 +99,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack }) => {
                     onChange={(e) => setTargetInput(e.target.value)}
                     className="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white text-xl font-bold font-mono focus:border-emerald-500 focus:outline-none"
                 />
-                <p className="text-xs text-gray-500 mt-2">Target ini digunakan untuk menghitung progres performa harian Anda.</p>
             </div>
 
             {/* Service Filters */}
@@ -72,7 +107,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack }) => {
                     <Settings size={20} />
                     <h3 className="font-bold uppercase text-sm">Filter Layanan</h3>
                 </div>
-                <p className="text-xs text-gray-500 mb-4">Pilih layanan yang Anda jalankan. Radar hanya akan menampilkan spot yang relevan.</p>
                 
                 <div className="space-y-3">
                     <ToggleRow 
@@ -102,20 +136,60 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack }) => {
                 </div>
             </div>
 
+            {/* DATA BACKUP & RESTORE */}
+            <div className="bg-[#1e1e1e] p-5 rounded-xl border border-gray-700">
+                <div className="flex items-center gap-2 mb-4 text-app-accent">
+                    <Download size={20} />
+                    <h3 className="font-bold uppercase text-sm">Backup & Restore Data</h3>
+                </div>
+                <p className="text-xs text-gray-500 mb-4">Penting! Simpan data Anda secara berkala agar tidak hilang saat ganti HP atau hapus cache.</p>
+                
+                <div className="grid grid-cols-2 gap-3">
+                    <button 
+                        onClick={handleBackup}
+                        className="py-3 bg-gray-800 border border-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl flex flex-col items-center justify-center gap-1 text-xs"
+                    >
+                        <Download size={20} className="text-emerald-500" />
+                        BACKUP (DOWNLOAD)
+                    </button>
+                    
+                    <label className="py-3 bg-gray-800 border border-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl flex flex-col items-center justify-center gap-1 text-xs cursor-pointer relative overflow-hidden">
+                        <Upload size={20} className="text-cyan-500" />
+                        RESTORE (UPLOAD)
+                        <input type="file" accept=".json" onChange={handleRestore} className="absolute inset-0 opacity-0 cursor-pointer" />
+                    </label>
+                </div>
+                {restoreStatus && (
+                    <div className="mt-3 text-center text-xs font-bold text-emerald-400 flex items-center justify-center gap-2">
+                         {restoreStatus.includes('Berhasil') && <CheckCircle size={14} />} {restoreStatus}
+                    </div>
+                )}
+            </div>
+
             {/* ERROR CORRECTION FEATURE */}
             <div className="bg-[#1e1e1e] p-5 rounded-xl border border-gray-700">
                 <div className="flex items-center gap-2 mb-4 text-app-primary">
                     <RefreshCw size={20} />
-                    <h3 className="font-bold uppercase text-sm">Koreksi Data</h3>
+                    <h3 className="font-bold uppercase text-sm">Manajemen Modal</h3>
                 </div>
-                <p className="text-xs text-gray-500 mb-4">Salah input saldo/bensin di awal? Reset kondisi tempur disini.</p>
-                <button 
-                    onClick={handleResetShift}
-                    className="w-full py-3 bg-gray-800 border border-gray-600 hover:bg-gray-700 text-gray-300 font-bold rounded-xl flex justify-center items-center gap-2 text-sm"
-                >
-                    <AlertTriangle size={16} className="text-yellow-500" />
-                    EDIT KONDISI AWAL (RESET)
-                </button>
+                
+                <div className="space-y-3">
+                    <button 
+                        onClick={() => { onBack(); onUpdateCondition(); }}
+                        className="w-full py-3 bg-gray-800 border border-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl flex justify-center items-center gap-2 text-sm"
+                    >
+                        <Edit3 size={16} />
+                        UPDATE SALDO / BENSIN
+                    </button>
+                    
+                    <button 
+                        onClick={handleResetShift}
+                        className="w-full py-3 bg-red-900/20 border border-red-800 hover:bg-red-900/30 text-red-400 font-bold rounded-xl flex justify-center items-center gap-2 text-sm"
+                    >
+                        <AlertTriangle size={16} />
+                        RESET SHIFT DARI NOL
+                    </button>
+                </div>
             </div>
 
             <button 
@@ -125,10 +199,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack }) => {
                 <Save size={20} />
                 SIMPAN PENGATURAN
             </button>
-
-             <div className="text-center mt-8">
-                <p className="text-[10px] text-gray-600 uppercase font-bold tracking-widest">Ikhtiar-Ku Pro v1.2</p>
-            </div>
         </div>
     );
 };

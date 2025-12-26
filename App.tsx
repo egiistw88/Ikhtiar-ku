@@ -12,15 +12,18 @@ import SplashView from './components/SplashView';
 import SettingsView from './components/SettingsView';
 import ShiftSummary from './components/ShiftSummary';
 import PreRideSetup from './components/PreRideSetup';
-import { Radar, Map as MapIcon, Plus, Wallet, Shield } from 'lucide-react';
+import { Radar, Map as MapIcon, Plus, Wallet, Shield, CheckCircle } from 'lucide-react';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<ViewState>('setup'); // Default to check logic
+  const [view, setView] = useState<ViewState>('setup'); 
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [currentTime, setCurrentTime] = useState<TimeState>(getCurrentTimeInfo());
   const [shiftState, setShiftState] = useState<ShiftState | null>(null);
   
+  // Toast State
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
   // Summary Data State
   const [summaryData, setSummaryData] = useState<{ finance: DailyFinancial | null } | null>(null);
 
@@ -29,7 +32,6 @@ const App: React.FC = () => {
     const data = getHotspots();
     setHotspots(data);
 
-    // Check if shift is already setup for today
     const currentShift = getShiftState();
     if (currentShift) {
         setShiftState(currentShift);
@@ -38,7 +40,6 @@ const App: React.FC = () => {
         setView('setup');
     }
 
-    // Precise minute ticker
     const timer = setInterval(() => {
         setCurrentTime(getCurrentTimeInfo());
     }, 10000); 
@@ -62,23 +63,34 @@ const App: React.FC = () => {
   };
 
   const handleCloseSummary = () => {
-      // Upon closing summary (End Shift), we route back to setup for next time or reset
       setView('setup');
-      setShiftState(null); // Clear local state to force re-check or re-login effect
+      setShiftState(null);
+  };
+
+  // Toast Handler
+  const showToast = (msg: string) => {
+      setToastMessage(msg);
+      setTimeout(() => setToastMessage(null), 3000);
   };
 
   if (loading) return <SplashView onFinish={() => setLoading(false)} />;
 
-  // Fullscreen Modal Views
   if (view === 'setup') return <PreRideSetup onComplete={handleSetupComplete} />;
-  if (view === 'settings') return <SettingsView onBack={() => setView('radar')} />;
+  if (view === 'settings') return <SettingsView onBack={() => setView('radar')} onUpdateCondition={() => setView('setup')} />;
   if (view === 'summary') return <ShiftSummary financials={summaryData?.finance || null} onClose={handleCloseSummary} />;
 
   return (
     <div className="h-[100dvh] w-full flex flex-col bg-app-bg text-app-text relative overflow-hidden">
       
-      {/* SOS Button (Always Floating Top Right) */}
       <SOSButton />
+
+      {/* GLOBAL TOAST NOTIFICATION */}
+      {toastMessage && (
+          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[2000] bg-emerald-600 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 animate-in slide-in-from-top-4 fade-in duration-300">
+              <CheckCircle size={18} className="text-white" />
+              <span className="font-bold text-sm">{toastMessage}</span>
+          </div>
+      )}
 
       {/* MAIN VIEWPORT */}
       <main className="flex-1 overflow-y-auto no-scrollbar pb-[100px] relative">
@@ -89,11 +101,12 @@ const App: React.FC = () => {
                 shiftState={shiftState}
                 onOpenSettings={() => setView('settings')}
                 onOpenSummary={handleOpenSummary}
+                onToast={showToast}
             />
         )}
         {view === 'map' && <MapView hotspots={hotspots} currentTime={currentTime} />}
-        {view === 'journal' && <JournalEntry currentTime={currentTime} onSaved={handleRefreshData} />}
-        {view === 'wallet' && <WalletView />}
+        {view === 'journal' && <JournalEntry currentTime={currentTime} onSaved={() => { handleRefreshData(); showToast("Data Berhasil Disimpan!"); }} />}
+        {view === 'wallet' && <WalletView onToast={showToast} />}
         {view === 'garage' && <GarageView />}
       </main>
 

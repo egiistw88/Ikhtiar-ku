@@ -16,10 +16,6 @@ export const getCurrentTimeInfo = () => {
   };
 };
 
-/**
- * CRITICAL FIX: Get local date string (YYYY-MM-DD) respecting device timezone (WIB/WITA/WIT).
- * Previous `toISOString()` used UTC, causing day shifts at 7 AM WIB.
- */
 export const getLocalDateString = (): string => {
     const now = new Date();
     const year = now.getFullYear();
@@ -28,34 +24,65 @@ export const getLocalDateString = (): string => {
     return `${year}-${month}-${day}`;
 };
 
-/**
- * Checks if the hotspot time is within +/- 60 minutes (1 hour) of current time
- */
+// NEW: Friendly Date Format (e.g., "Senin, 25 Des 2025")
+export const formatFriendlyDate = (dateStr: string): string => {
+    try {
+        const date = new Date(dateStr);
+        return new Intl.DateTimeFormat('id-ID', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        }).format(date);
+    } catch (e) {
+        return dateStr;
+    }
+};
+
+// NEW: Haptic Feedback Helper
+export const vibrate = (pattern: number | number[] = 10) => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(pattern);
+    }
+};
+
+// NEW: Currency Input Formatter (returns string with dots)
+export const formatCurrencyInput = (value: string): string => {
+    const numberString = value.replace(/[^,\d]/g, '').toString();
+    const split = numberString.split(',');
+    const sisa = split[0].length % 3;
+    let rupiah = split[0].substr(0, sisa);
+    const ribuan = split[0].substr(sisa).match(/\d{3}/gi);
+    
+    if (ribuan) {
+        const separator = sisa ? '.' : '';
+        rupiah += separator + ribuan.join('.');
+    }
+    
+    return split[1] !== undefined ? rupiah + ',' + split[1] : rupiah;
+};
+
+// NEW: Clean Currency to Number
+export const parseCurrencyInput = (value: string): number => {
+    return parseInt(value.replace(/\./g, '')) || 0;
+};
+
 export const isWithinTimeWindow = (targetTime: string, currentTime: string): boolean => {
   const [tH, tM] = targetTime.split(':').map(Number);
   const [cH, cM] = currentTime.split(':').map(Number);
 
   const targetMinutes = tH * 60 + tM;
   const currentMinutes = cH * 60 + cM;
-
   const diff = Math.abs(currentMinutes - targetMinutes);
-
-  // 60 minutes window as per request
   return diff <= 60; 
 };
 
-/**
- * Helper to get the minutes difference for sorting precision
- */
 export const getTimeDifference = (targetTime: string, currentTime: string): number => {
     const [tH, tM] = targetTime.split(':').map(Number);
     const [cH, cM] = currentTime.split(':').map(Number);
     return Math.abs((cH * 60 + cM) - (tH * 60 + tM));
 }
 
-/**
- * Determines broad time window for display
- */
 export const getTimeWindow = (hours: number): string => {
   if (hours >= 2 && hours < 10) return 'Pagi';
   if (hours >= 10 && hours < 14) return 'Siang';
@@ -63,19 +90,13 @@ export const getTimeWindow = (hours: number): string => {
   return 'Malam';
 };
 
-/**
- * Check for Night Mode (18:00 - 06:00) strictly
- */
 export const isNightTime = (date: Date): boolean => {
     const hour = date.getHours();
     return hour >= 18 || hour < 6;
 }
 
-/**
- * Calculates distance between two coordinates in Kilometers
- */
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371; // Radius of the earth in km
+  const R = 6371; 
   const dLat = deg2rad(lat2 - lat1);
   const dLon = deg2rad(lon2 - lon1);
   const a =
@@ -83,8 +104,8 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
     Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const d = R * c; // Distance in km
-  return Number(d.toFixed(1)); // Return to 1 decimal place
+  const d = R * c; 
+  return Number(d.toFixed(1)); 
 };
 
 function deg2rad(deg: number) {

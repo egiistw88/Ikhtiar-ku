@@ -44,6 +44,7 @@ export interface ShiftState {
     startBalance: number; // Saldo Aplikator
     startFuel: number; // 0 - 100 (Percentage)
     startCash: number; // Uang Tunai di Dompet
+    startTime: number; // Timestamp ms
     status: 'CRITICAL' | 'WARNING' | 'SAFE';
     recommendation: string;
 }
@@ -66,7 +67,7 @@ export interface DailyFinancial {
   operationalCost: number; // Total Pengeluaran Real (Bensin, Makan)
   netCash: number; // Uang di Tangan (Gross - Cost)
   
-  // Virtual Allocations (Saran)
+  // Smart Allocations (Kecerdasan Finansial)
   maintenanceFund: number; // 10% dari Gross (Penyusutan Mesin)
   kitchen: number; // NetCash - MaintenanceFund (Sisa Bersih untuk Rumah)
   
@@ -78,6 +79,7 @@ export interface GarageData {
   emergencyContact: string; // WhatsApp Number (e.g., 6281xxx)
   currentOdometer: number; // Total KM Motor
   lastOilChangeKm: number; // KM saat ganti oli terakhir
+  serviceInterval: number; // KM Interval Ganti Oli (Default 2000)
   lastTireChangeDate: string; // ISO Date
   stnkExpiryDate: string; // ISO Date
   simExpiryDate: string; // ISO Date

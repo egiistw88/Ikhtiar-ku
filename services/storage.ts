@@ -180,17 +180,20 @@ export const getTodayFinancials = (): DailyFinancial => {
         }
     });
 
-    // LOGIKA BARU: REAL CASH FLOW
+    // LOGIKA REAL CASH FLOW
+    // Net Cash = Uang yang dipegang tangan saat ini
     const netCash = grossIncome - realOpsCost;
 
-    // Saran Alokasi:
-    // 1. Tabungan Servis (Machine Wear & Tear) = 10% dari OMZET (Bukan Net). 
-    //    Mesin rusak itu pasti, tidak peduli driver untung atau rugi.
+    // KECERDASAN FINANSIAL:
+    // 1. Maintenance Fund (Tabungan Wajib): 10% dari Gross.
+    //    Alasannya: Mesin menyusut berdasarkan pemakaian, bukan berdasarkan profit bersih.
+    //    Driver profesional harus menyisihkan ini di awal.
     const maintenanceFund = Math.round(grossIncome * 0.10);
 
-    // 2. Dana Dapur (Take Home Pay) = Sisa uang di tangan setelah disisihkan untuk servis.
-    //    Jika NetCash minus (Nombok), maka Dapur 0.
-    const kitchen = Math.max(0, netCash - maintenanceFund);
+    // 2. Kitchen Fund (Dana Dapur):
+    //    Ini adalah uang yang BENAR-BENAR bersih dan boleh dibelanjakan untuk keluarga.
+    //    Rumusnya: Net Cash (Uang di tangan) - Tabungan Wajib.
+    const kitchen = netCash - maintenanceFund;
 
     return {
         date: todayStr,
@@ -198,7 +201,7 @@ export const getTodayFinancials = (): DailyFinancial => {
         operationalCost: realOpsCost,
         netCash,
         maintenanceFund,
-        kitchen,
+        kitchen, // Bisa negatif jika operational cost tinggi!
         target: settings.targetRevenue
     };
 }
@@ -215,6 +218,7 @@ export const getGarageData = (): GarageData => {
             emergencyContact: '',
             currentOdometer: 0,
             lastOilChangeKm: 0,
+            serviceInterval: 2000, // Default 2000km
             lastTireChangeDate: '',
             stnkExpiryDate: '',
             simExpiryDate: ''
@@ -224,6 +228,7 @@ export const getGarageData = (): GarageData => {
              emergencyContact: '',
              currentOdometer: 0,
              lastOilChangeKm: 0,
+             serviceInterval: 2000,
              lastTireChangeDate: '',
              stnkExpiryDate: '',
              simExpiryDate: ''
@@ -233,4 +238,34 @@ export const getGarageData = (): GarageData => {
 
 export const saveGarageData = (data: GarageData): void => {
     localStorage.setItem(GARAGE_KEY, JSON.stringify(data));
+}
+
+// ==========================================
+// BACKUP & RESTORE UTILS
+// ==========================================
+export const createBackupString = (): string => {
+    const backup = {
+        hotspots: getHotspots(),
+        transactions: getTransactions(),
+        garage: getGarageData(),
+        settings: getUserSettings(),
+        shift: getShiftState(),
+        version: "1.0",
+        timestamp: new Date().toISOString()
+    };
+    return JSON.stringify(backup);
+}
+
+export const restoreFromBackup = (jsonString: string): boolean => {
+    try {
+        const data = JSON.parse(jsonString);
+        if (data.hotspots) localStorage.setItem(STORAGE_KEY, JSON.stringify(data.hotspots));
+        if (data.transactions) localStorage.setItem(FINANCE_KEY, JSON.stringify(data.transactions));
+        if (data.garage) localStorage.setItem(GARAGE_KEY, JSON.stringify(data.garage));
+        if (data.settings) localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.settings));
+        return true;
+    } catch (e) {
+        console.error("Restore failed", e);
+        return false;
+    }
 }

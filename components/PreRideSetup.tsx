@@ -1,17 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShiftState } from '../types';
-import { saveShiftState } from '../services/storage';
+import { saveShiftState, getShiftState } from '../services/storage';
 import { getLocalDateString } from '../utils';
-import { Bike, Wallet, Banknote, ArrowRight, Fuel, AlertTriangle, AlertCircle } from 'lucide-react';
+import { Bike, Wallet, Banknote, ArrowRight, Fuel, AlertTriangle, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface PreRideSetupProps {
     onComplete: () => void;
 }
 
 const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
-    const [balance, setBalance] = useState<string>('');
-    const [cash, setCash] = useState<string>('');
-    const [fuel, setFuel] = useState<number>(50); // Percentage
+    // Check if we are in "Update Mode" (existing shift)
+    const existing = getShiftState();
+    const isUpdateMode = !!existing;
+
+    const [balance, setBalance] = useState<string>(existing ? existing.startBalance.toString() : '');
+    const [cash, setCash] = useState<string>(existing ? existing.startCash.toString() : '');
+    const [fuel, setFuel] = useState<number>(existing ? existing.startFuel : 50);
     const [error, setError] = useState<string | null>(null);
     
     const handleSubmit = (e: React.FormEvent) => {
@@ -21,15 +25,9 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
         const balanceVal = parseInt(balance.replace(/\D/g, ''));
         const cashVal = parseInt(cash.replace(/\D/g, ''));
         
-        // VALIDATION: Prevent empty or NaN
-        if (isNaN(balanceVal)) {
-            setError("Saldo aplikator harus diisi (0 jika kosong).");
-            return;
-        }
-        if (isNaN(cashVal)) {
-            setError("Uang pegangan harus diisi (0 jika kosong).");
-            return;
-        }
+        // VALIDATION
+        if (isNaN(balanceVal)) { setError("Saldo aplikator harus diisi."); return; }
+        if (isNaN(cashVal)) { setError("Uang pegangan harus diisi."); return; }
         
         // Analyze Logic & Generate Strategy
         let status: ShiftState['status'] = 'SAFE';
@@ -50,10 +48,11 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
         }
 
         const newState: ShiftState = {
-            date: getLocalDateString(), // Using local date fix
+            date: getLocalDateString(),
             startBalance: balanceVal,
             startCash: cashVal,
             startFuel: fuel,
+            startTime: existing ? existing.startTime : Date.now(), // Preserve start time if updating
             status: status,
             recommendation: rec
         };
@@ -68,9 +67,11 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
             <div className="w-full max-w-md space-y-6 my-auto">
                 <div className="text-center mb-6">
                     <h1 className="text-3xl font-black text-white uppercase tracking-tighter mb-2">
-                        Cek Kondisi <span className="text-app-primary">Tempur</span>
+                        {isUpdateMode ? 'Update Kondisi' : 'Cek Modal Awal'}
                     </h1>
-                    <p className="text-gray-400 text-sm">Pastikan modal jalan aman agar tidak boncos.</p>
+                    <p className="text-gray-400 text-sm">
+                        {isUpdateMode ? 'Perbarui data jika habis isi bensin/topup.' : 'Pastikan modal jalan aman agar tidak boncos.'}
+                    </p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
@@ -138,9 +139,6 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
                                 className="w-full bg-transparent pl-8 text-3xl font-mono font-bold text-white focus:outline-none placeholder-gray-700"
                             />
                         </div>
-                        <p className="text-[10px] text-gray-500 mt-2 italic">
-                            *Untuk kembalian atau talangan food.
-                        </p>
                     </div>
 
                     {/* Error Message */}
@@ -164,8 +162,16 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
                         type="submit"
                         className="w-full py-5 bg-app-primary hover:bg-yellow-400 text-black font-black text-xl rounded-2xl shadow-[0_0_20px_rgba(252,211,77,0.3)] flex justify-center items-center gap-3 transition-transform active:scale-[0.98] mt-4"
                     >
-                        SIAP NARIK <ArrowRight size={24} strokeWidth={3} />
+                        {isUpdateMode ? (
+                            <>UPDATE DATA <RefreshCw size={24} /></>
+                        ) : (
+                            <>SIAP NARIK <ArrowRight size={24} strokeWidth={3} /></>
+                        )}
                     </button>
+                    
+                    {isUpdateMode && (
+                         <button type="button" onClick={onComplete} className="w-full py-3 text-gray-500 font-bold text-sm">BATAL</button>
+                    )}
 
                 </form>
             </div>

@@ -136,6 +136,22 @@ export const addTransaction = (tx: Transaction): void => {
     }
 }
 
+export const updateTransaction = (updatedTx: Transaction): void => {
+    const current = getTransactions();
+    const updated = current.map(tx => tx.id === updatedTx.id ? updatedTx : tx);
+    localStorage.setItem(FINANCE_KEY, JSON.stringify(updated));
+    
+    // Note: Updating distance won't automatically revert odometer logic to prevent complex sync issues.
+    // Odometer is treated as forward-only in this version for stability.
+}
+
+export const deleteTransaction = (id: string): void => {
+    const current = getTransactions();
+    // Use String comparison to be safe
+    const updated = current.filter(tx => String(tx.id) !== String(id));
+    localStorage.setItem(FINANCE_KEY, JSON.stringify(updated));
+}
+
 export const getTodayFinancials = (): DailyFinancial => {
     const todayStr = new Date().toISOString().split('T')[0];
     const txs = getTransactions().filter(t => t.date === todayStr);

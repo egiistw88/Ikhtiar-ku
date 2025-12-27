@@ -71,7 +71,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   }, []);
 
   // ==========================================
-  // LOGIKA INPUT SUARA V7 (INDONESIA CURRENCY FIX)
+  // LOGIKA INPUT SUARA V9 (SLANG DICTIONARY UPDATE)
   // ==========================================
   const toggleVoiceInput = () => {
       vibrate(20);
@@ -144,122 +144,66 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       setAlertConfig({ isOpen: true, title, msg });
   };
 
-  // --- HELPER: TEXT TO NUMBER (NORMALIZER INDONESIA) ---
+  // --- HELPER: TEXT NORMALIZER & SANITIZER ---
   const normalizeText = (text: string): string => {
       let s = text.toLowerCase();
 
-      // 1. Ganti pecahan & desimal lisan
+      // 1. CRITICAL FIX: Hapus "Rp" atau "Rp." yang menempel
+      // Contoh: "Rp10.000" -> "10.000", "Rp 50rb" -> "50rb"
+      s = s.replace(/rp\.?\s*/g, ' '); 
+      
+      // 2. Ganti desimal & pecahan
       s = s.replace(/setengah/g, '0.5').replace(/satu setengah/g, '1.5');
       s = s.replace(/koma/g, '.').replace(/point/g, '.');
 
-      // 2. Slang Uang -> Angka String
+      // 3. Slang Uang -> Angka String (KAMUS GAUL DRIVER)
       const slangMoney: Record<string, string> = {
-          'goceng': '5000', 'ceban': '10000', 'cenggo': '1500', 
-          'noban': '20000', 'goban': '50000', 'cepek': '100000', 'juta': '1000000'
+          'gopek': '500', 
+          'seceng': '1000',
+          'cenggo': '1500', 
+          'goceng': '5000', 
+          'ceban': '10000', 
+          'noban': '20000', 
+          'jigo': '25000',
+          'goban': '50000', 
+          'gocap': '50000', 
+          'cepek': '100000', 
+          'juta': '1000000'
       };
+      
+      // Replace slang dengan angka
       for (const [key, val] of Object.entries(slangMoney)) {
+          // \b memastikan hanya mengganti kata utuh, bukan bagian dari kata lain
           s = s.replace(new RegExp(`\\b${key}\\b`, 'g'), val);
       }
 
-      // 3. Konversi Kata Bilangan ke Digit (Hanya untuk satuan/belasan umum)
-      // Ini membantu regex menangkap "sepuluh ribu" sebagai "10 ribu"
+      // 4. Konversi Kata Bilangan Dasar (0-100)
       const wordMap: Record<string, string> = {
           'nol': '0', 'satu': '1', 'dua': '2', 'tiga': '3', 'empat': '4',
           'lima': '5', 'enam': '6', 'tujuh': '7', 'delapan': '8', 'sembilan': '9',
-          'sepuluh': '10', 'sebelas': '11', 'seratus': '100'
+          'sepuluh': '10', 'sebelas': '11', 'seratus': '100', 'lima puluh': '50', 
+          'dua puluh': '20', 'tiga puluh': '30'
       };
       
-      // Replace kata angka yang diikuti kata kunci
       Object.keys(wordMap).forEach(key => {
-         const regex = new RegExp(`\\b${key}\\s+(ribu|rb|ratus|puluh|km|kilo|meter)\\b`, 'gi');
+         // Regex lookahead: Ganti kata angka HANYA JIKA diikuti satuan (ribu/km/meter) atau berdiri sebagai nominal
+         const regex = new RegExp(`\\b${key}\\s+(ribu|rb|ratus|puluh|juta|km|kilo|meter)\\b`, 'gi');
          s = s.replace(regex, (match) => match.replace(key, wordMap[key]));
       });
 
-      return s;
+      // Cleanup spasi ganda hasil replace
+      return s.replace(/\s+/g, ' ').trim();
   };
 
-  // --- CORE ENGINE V7 ---
+  // --- CORE ENGINE V9 ---
   const processVoiceInput = (rawTranscript: string) => {
       vibrate([50, 30, 50]);
       setVoiceStatus("Menganalisis...");
 
-      // 1. Normalisasi
       let processingText = normalizeText(rawTranscript);
-      console.log("Normalized:", processingText);
+      console.log("Processing:", processingText);
 
-      // --- BEDAH 1: EKSTRAKSI UANG (LOGIKA LEBIH AGRESIF) ---
-      let moneyVal = 0;
-      let moneyStringMatch = "";
-
-      // STRATEGI 1: Cari Pola Ribuan Indonesia (Titik sebagai pemisah) -> 10.000, 15.500
-      // Regex: Angka 1-3 digit, diikuti titik dan 3 digit (berulang)
-      const dotPattern = /\b\d{1,3}(?:\.\d{3})+\b/g;
-      const dotMatches = processingText.match(dotPattern);
-      
-      if (dotMatches) {
-          // Ambil match terakhir yang paling masuk akal sebagai uang (biasanya uang disebut di akhir/tengah)
-          // Tapi kita prioritaskan yang > 1000
-          for (const m of dotMatches) {
-              const val = parseInt(m.replace(/\./g, '')); // Hapus titik -> 10000
-              if (val >= 1000) {
-                  moneyVal = val;
-                  moneyStringMatch = m;
-                  break; // Ketemu, stop
-              }
-          }
-      }
-
-      // STRATEGI 2: Jika Strategi 1 gagal, cari pola "Angka + Ribu/K"
-      if (moneyVal === 0) {
-          // Regex: Angka (bisa desimal titik/koma) diikuti spasi opsional + ribu/rb/k/000
-          // Contoh: "15 ribu", "15rb", "10 k", "15.5 rb"
-          const suffixPattern = /(\d+(?:[\.,]\d+)?)\s*(ribu|rb|k|000)\b/i;
-          const match = processingText.match(suffixPattern);
-          
-          if (match) {
-              let rawNum = match[1].replace(',', '.'); // Normalisasi desimal
-              let val = parseFloat(rawNum);
-              const suffix = match[2].toLowerCase();
-
-              // Logika Pengali
-              if (['ribu', 'rb', 'k'].includes(suffix)) {
-                  val *= 1000;
-              } 
-              // Jika suffix "000" (dari STT misal "15 000"), val biasanya sudah terbaca sebagai 15 atau 15000 tergantung spasi
-              // Kita asumsikan user maksud ribuan jika < 1000
-              if (val < 1000 && suffix !== '000') {
-                  // Fallback safety
-              }
-
-              // Fix Glitch: "10.000" dibaca "10" oleh parseFloat("10.000")
-              // Jika rawNum mengandung titik dan hasilnya < 1000, kemungkinan itu pemisah ribuan
-              if (rawNum.includes('.') && val < 1000) {
-                   val = parseInt(rawNum.replace('.', '')) * (['ribu','rb','k'].includes(suffix) ? 1000 : 1);
-              }
-
-              moneyVal = val;
-              moneyStringMatch = match[0];
-          }
-      }
-
-      // STRATEGI 3: Angka Bugil Besar (Fallback terakhir)
-      if (moneyVal === 0) {
-           const bigNumPattern = /\b(\d{4,})\b/;
-           const match = processingText.match(bigNumPattern);
-           if (match) {
-               moneyVal = parseInt(match[1]);
-               moneyStringMatch = match[0];
-           }
-      }
-
-      // TERAPKAN & HAPUS UANG
-      if (moneyVal > 0) {
-          setArgoRaw(formatCurrencyInput(moneyVal.toString()));
-          // HAPUS string uang dari kalimat
-          processingText = processingText.replace(moneyStringMatch, " ");
-      }
-
-      // --- BEDAH 2: EKSTRAKSI JARAK ---
+      // --- BEDAH 1: EKSTRAKSI JARAK (Distance) ---
       let distVal = 0;
       let distStringMatch = "";
 
@@ -269,12 +213,12 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       if (matchDist) {
           let val = parseFloat(matchDist[1].replace(',', '.'));
           const unit = matchDist[2].toLowerCase();
-          if (unit.startsWith('m')) val /= 1000; 
-          
+          if (unit.startsWith('m') && unit !== 'meter') val /= 1000;
+          if (unit === 'meter') val /= 1000;
+
           distVal = val;
           distStringMatch = matchDist[0];
       } else {
-          // Contextual: "Jarak 5"
           const contextDist = /(jarak|jauhnya)\s+(\d+(?:[\.,]\d+)?)/i;
           const cm = processingText.match(contextDist);
           if (cm) {
@@ -283,14 +227,67 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
           }
       }
 
-      // TERAPKAN & HAPUS JARAK
       if (distVal > 0) {
           setTripDist(distVal.toString());
           processingText = processingText.replace(distStringMatch, " ");
       }
 
+      // --- BEDAH 2: EKSTRAKSI UANG ---
+      let moneyVal = 0;
+      let moneyStringMatch = "";
+
+      // STRATEGI 1: DETEKSI FORMAT RIBUAN (10.000)
+      const dotPattern = /\b\d{1,3}(?:\.\d{3})+\b/g;
+      const dotMatches = processingText.match(dotPattern);
+      
+      if (dotMatches) {
+          for (const m of dotMatches) {
+              const val = parseInt(m.replace(/\./g, ''));
+              if (val >= 1000) {
+                  moneyVal = val;
+                  moneyStringMatch = m;
+                  break; 
+              }
+          }
+      }
+
+      // STRATEGI 2: DETEKSI SUFFIX (10 ribu, 15rb)
+      if (moneyVal === 0) {
+          const suffixPattern = /(\d+(?:[\.,]\d+)?)\s*(ribu|rb|k|000)\b/i;
+          const match = processingText.match(suffixPattern);
+          
+          if (match) {
+              let rawNum = match[1].replace(',', '.');
+              let val = parseFloat(rawNum);
+              const suffix = match[2].toLowerCase();
+
+              if (suffix === '000') {
+                  val = val * 1000; 
+              } else {
+                  val *= 1000;
+              }
+
+              moneyVal = val;
+              moneyStringMatch = match[0];
+          }
+      }
+
+      // STRATEGI 3: ANGKA POLOS BESAR (> 1000)
+      if (moneyVal === 0) {
+           const bigNumPattern = /\b(\d{4,})\b/;
+           const match = processingText.match(bigNumPattern);
+           if (match) {
+               moneyVal = parseInt(match[1]);
+               moneyStringMatch = match[0];
+           }
+      }
+
+      if (moneyVal > 0) {
+          setArgoRaw(formatCurrencyInput(moneyVal.toString()));
+          processingText = processingText.replace(moneyStringMatch, " ");
+      }
+
       // --- BEDAH 3: APLIKASI & LAYANAN ---
-      // Cari, Set, Hapus
       const apps: Record<string, AppSource> = {
           'gojek': 'Gojek', 'gofood': 'Gojek', 'gosend': 'Gojek',
           'grab': 'Grab', 'grabfood': 'Grab', 'grabexpress': 'Grab',
@@ -322,7 +319,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
           }
       }
 
-      // --- BEDAH 4: CLEANUP (PEMBERSIHAN FINAL) ---
+      // --- BEDAH 4: CLEANUP & LOKASI ---
       const fillers = [
           'dapat', 'orderan', 'dari', 'di', 'ke', 'tujuannya', 'arah', 
           'seharga', 'tarif', 'ongkir', 'biaya', 'harga', 'rupiah', 'rp', 'perak',
@@ -333,7 +330,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
           processingText = processingText.replace(new RegExp(`\\b${word}\\b`, 'gi'), " ");
       });
 
-      // --- BEDAH 5: SPLIT LOKASI & CATATAN ---
+      // Split Catatan
       let finalLoc = "";
       let finalNote = "";
       const splitters = ['catatan', 'note', 'keterangan', 'pesan'];
@@ -355,22 +352,20 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
           finalLoc = processingText.trim();
       }
 
-      // Sanitize Strings
       finalLoc = finalLoc.replace(/\s+/g, ' ').replace(/[^\w\s\(\)\.\-]/gi, '').trim();
       finalNote = finalNote.replace(/\s+/g, ' ').trim();
 
-      // Auto Inference Service (Jika belum ada)
       if (!serviceFound && finalLoc) {
           const lower = finalLoc.toLowerCase();
           if (/mie|nasi|kopi|cafe|resto|warung|soto|bakso|geprek|seblak|ayam/i.test(lower)) setServiceType('Food');
           else if (/mart|super|pasar|mall|toko|grosir/i.test(lower)) setServiceType('Shop');
       }
 
-      if (finalLoc) setOrigin(finalLoc.replace(/(?:^|\s)\S/g, a => a.toUpperCase())); // Title Case
+      if (finalLoc) setOrigin(finalLoc.replace(/(?:^|\s)\S/g, a => a.toUpperCase())); 
       if (finalNote) setNotes(finalNote);
 
-      setTranscriptPreview("Berhasil diurai!");
-      setTimeout(() => setTranscriptPreview(""), 2000);
+      setTranscriptPreview("Siap!");
+      setTimeout(() => setTranscriptPreview(""), 1500);
       setVoiceStatus("Ketuk Mic untuk Input Suara");
   };
 

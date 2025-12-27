@@ -1,9 +1,14 @@
 import { GoogleGenAI } from "@google/genai";
 import { Hotspot, DailyFinancial, ShiftState } from '../types';
 
-// Initialize Gemini Client
-// Assumption: process.env.API_KEY is injected by the build system/environment
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// Defensive initialization: Only init if key exists, otherwise let the function handle the error gracefully
+const getAiClient = () => {
+    const key = process.env.API_KEY;
+    if (!key) return null;
+    return new GoogleGenAI({ apiKey: key });
+};
+
+const ai = getAiClient();
 
 export const generateDriverStrategy = async (
     hotspots: Hotspot[], 
@@ -11,12 +16,12 @@ export const generateDriverStrategy = async (
     shift: ShiftState | null
 ): Promise<string> => {
     try {
-        if (!process.env.API_KEY) {
-            console.warn("AI Service: API Key is missing");
+        if (!ai) {
+            console.warn("AI Service: API Key is missing in environment variables.");
             return "Kunci API (API Key) belum dipasang Ndan. Kontak developer.";
         }
 
-        const model = 'gemini-2.5-flash-latest'; // Use 2.5 Flash for speed/reliability in production
+        const model = 'gemini-2.5-flash-latest'; 
         
         // Prepare context data cleaning (Minimize tokens)
         const cleanHotspots = hotspots.slice(0, 5).map(h => ({
@@ -54,7 +59,6 @@ export const generateDriverStrategy = async (
             }
         });
 
-        // Strict & Deep Checking
         if (response && response.text) {
              const cleanText = response.text.trim();
              if (cleanText.length > 0) return cleanText;
@@ -64,7 +68,7 @@ export const generateDriverStrategy = async (
         const fallbackText = response?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (fallbackText) return fallbackText;
         
-        return "Sinyal AI terputus. Coba lagi nanti Ndan.";
+        return "Sinyal AI terputus (Empty Response). Coba lagi nanti Ndan.";
 
     } catch (error: any) {
         console.error("AI Service Error:", error);

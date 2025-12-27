@@ -56,20 +56,22 @@ export interface Transaction {
   timestamp: number;
   amount: number;
   type: 'income' | 'expense';
-  category: 'Trip' | 'Tip' | 'Fuel' | 'Food' | 'Maintenance' | 'Other';
+  // Updated Categories for Detailed Tracking
+  // TopUp & Parking adalah kategori krusial buat Ojol
+  category: 'Trip' | 'Tip' | 'Bonus' | 'Other' | 'Fuel' | 'Food' | 'Maintenance' | 'TopUp' | 'Parking' | 'Data' | 'Installment';
   distanceKm?: number; // For depreciation calc
   note?: string;
 }
 
 export interface DailyFinancial {
   date: string;
-  grossIncome: number; // Total Pendapatan
-  operationalCost: number; // Total Pengeluaran Real (Bensin, Makan)
-  netCash: number; // Uang di Tangan (Gross - Cost)
+  grossIncome: number; // Total Pendapatan (Trip + Tip + Bonus)
+  operationalCost: number; // Total Pengeluaran Real (Bensin, Makan, Parkir, Topup)
+  netCash: number; // Uang di Tangan Real (StartCash + Income - Expense)
   
   // Smart Allocations (Kecerdasan Finansial)
-  maintenanceFund: number; // 10% dari Gross (Penyusutan Mesin)
-  kitchen: number; // NetCash - MaintenanceFund (Sisa Bersih untuk Rumah)
+  maintenanceFund: number; // 10% dari Gross (Penyusutan Mesin - Virtual)
+  kitchen: number; // Uang Dapur (NetCash - MaintenanceFund) -> Aman dibawa pulang
   
   target: number;
 }

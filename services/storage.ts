@@ -168,6 +168,9 @@ export const getTodayFinancials = (): DailyFinancial => {
     const todayStr = getLocalDateString();
     const txs = getTransactions().filter(t => t.date === todayStr);
     const settings = getUserSettings();
+    // Ambil Modal Awal jika ada
+    const shift = getShiftState();
+    const startCash = shift ? shift.startCash : 0;
     
     let grossIncome = 0;
     let realOpsCost = 0;
@@ -180,28 +183,32 @@ export const getTodayFinancials = (): DailyFinancial => {
         }
     });
 
-    // LOGIKA REAL CASH FLOW
-    // Net Cash = Uang yang dipegang tangan saat ini
-    const netCash = grossIncome - realOpsCost;
+    // LOGIKA REAL CASH FLOW:
+    // Uang di Tangan = Modal Awal Tunai + Pendapatan Tunai - Pengeluaran Tunai
+    // (Asumsi sederhana: semua income/expense mempengaruhi cash flow tunai/dompet)
+    const netCash = startCash + grossIncome - realOpsCost;
 
-    // KECERDASAN FINANSIAL:
-    // 1. Maintenance Fund (Tabungan Wajib): 10% dari Gross.
-    //    Alasannya: Mesin menyusut berdasarkan pemakaian, bukan berdasarkan profit bersih.
-    //    Driver profesional harus menyisihkan ini di awal.
+    // KECERDASAN FINANSIAL (Smart Allocations):
+    // 1. Maintenance Fund (Tabungan Wajib): 10% dari Gross Income.
+    //    Ini adalah "Invisible Expense". Uang ada, tapi jangan dianggap milik sendiri.
     const maintenanceFund = Math.round(grossIncome * 0.10);
 
     // 2. Kitchen Fund (Dana Dapur):
-    //    Ini adalah uang yang BENAR-BENAR bersih dan boleh dibelanjakan untuk keluarga.
-    //    Rumusnya: Net Cash (Uang di tangan) - Tabungan Wajib.
-    const kitchen = netCash - maintenanceFund;
-
+    //    Uang bersih yang boleh dibawa pulang.
+    //    Rumus: Net Cash (Uang Fisik) - Tabungan Wajib - Modal Awal (biar modal muter besok).
+    //    Jika hasilnya minus, berarti belum untung (masih makan modal).
+    let kitchen = netCash - maintenanceFund - startCash;
+    
+    // Minimal 0 agar tidak minus di UI jika baru mulai
+    // Tapi secara logika akuntansi, bisa minus kalau pengeluaran > pendapatan
+    
     return {
         date: todayStr,
         grossIncome,
         operationalCost: realOpsCost,
-        netCash,
+        netCash, // Total uang fisik di dompet saat ini
         maintenanceFund,
-        kitchen, // Bisa negatif jika operational cost tinggi!
+        kitchen, // Sisa profit bersih
         target: settings.targetRevenue
     };
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Hotspot, Transaction } from '../types';
 import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate } from '../utils';
-import { MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, Volume2, XCircle, MicOff } from 'lucide-react';
+import { MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, X, RefreshCw } from 'lucide-react';
 import { addHotspot, addTransaction } from '../services/storage';
 import CustomDialog from './CustomDialog';
 
@@ -71,7 +71,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   }, []);
 
   // ==========================================
-  // SMART VOICE PARSING ENGINE V2
+  // SMART VOICE PARSING ENGINE V3 (Advanced Distance)
   // ==========================================
   const toggleVoiceInput = () => {
       vibrate(20);
@@ -94,7 +94,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   const startListening = (SpeechRecognition: any) => {
       try {
           const recognition = new SpeechRecognition();
-          recognition.lang = 'id-ID'; // Wajib Bahasa Indonesia
+          recognition.lang = 'id-ID'; 
           recognition.continuous = false; 
           recognition.interimResults = true; 
 
@@ -149,6 +149,18 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       setAlertConfig({ isOpen: true, title, msg });
   };
 
+  // Helper: Ubah kata bilangan ke angka (untuk kasus desimal lisan)
+  const wordToNumber = (text: string): string => {
+      const map: Record<string, string> = {
+          'satu': '1', 'dua': '2', 'tiga': '3', 'empat': '4', 'lima': '5',
+          'enam': '6', 'tujuh': '7', 'delapan': '8', 'sembilan': '9', 'nol': '0',
+          'koma': '.', 'point': '.', 'titik': '.',
+          'setengah': '0.5'
+      };
+      
+      return text.split(' ').map(word => map[word] || word).join(' ');
+  };
+
   // --- LOGIC UTAMA PEMECAH KALIMAT ---
   const parseVoiceCommand = (rawText: string) => {
       vibrate([30, 50, 30]); 
@@ -156,9 +168,9 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       
       let processingText = rawText;
 
-      // 1. EKSTRAKSI UANG (Money)
-      // Mencari pola: "15 ribu", "15rb", "15k", "goceng", dll.
-      // Kita cabut dari teks agar tidak mengganggu deteksi lokasi.
+      // ----------------------------------------------------
+      // 1. EKSTRAKSI UANG (Money) - PRIORITAS TERTINGGI
+      // ----------------------------------------------------
       const moneyMap: Record<string, number> = {
           'goceng': 5000, 'ceban': 10000, 'cenggo': 1500, 'noban': 20000, 
           'goban': 50000, 'cepek': 100000, 'juta': 1000000, 'setengah juta': 500000
@@ -171,7 +183,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       for (const [key, val] of Object.entries(moneyMap)) {
           if (processingText.includes(key)) {
               amount = val;
-              processingText = processingText.replace(key, ""); // Hapus dari kalimat
+              processingText = processingText.replace(key, ""); 
               moneyMatched = true;
               break;
           }
@@ -181,14 +193,13 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       if (!moneyMatched) {
           const digitMatch = processingText.match(/(\d+(?:[\.,]\d+)?)\s*(ribu|rb|k|000)/i);
           if (digitMatch) {
-              // Bersihkan titik/koma jika ada (misal 1.5 ribu jarang, tapi 15 ribu umum)
               const rawNum = digitMatch[1].replace(',', '.');
               amount = parseFloat(rawNum) * 1000;
-              processingText = processingText.replace(digitMatch[0], ""); // Hapus
+              processingText = processingText.replace(digitMatch[0], ""); 
               moneyMatched = true;
           } else {
-              // Cek angka saja yang berdiri sendiri dan besar (asumsi user sebut "lima belas ribu" tapi STT nulis "15000")
-              const plainNumber = processingText.match(/\b(\d{4,})\b/); // Minimal 4 digit (1000+)
+              // Cek angka puluhan ribu yang berdiri sendiri (misal "dua puluh lima ribu" -> kadang STT output "25000")
+              const plainNumber = processingText.match(/\b(\d{4,})\b/); 
               if (plainNumber) {
                   amount = parseInt(plainNumber[1]);
                   processingText = processingText.replace(plainNumber[0], "");
@@ -198,17 +209,64 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
       if (amount > 0) setArgoRaw(formatCurrencyInput(amount.toString()));
 
-      // 2. EKSTRAKSI JARAK (Distance)
-      // Pola: "5 kilo", "5.2 km", "jarak 10"
-      const distMatch = processingText.match(/(\d+(?:[\.,]\d+)?)\s*(km|kilo|kilometer)/i);
-      if (distMatch) {
-          const distStr = distMatch[1].replace(',', '.');
-          setTripDist(distStr);
-          processingText = processingText.replace(distMatch[0], ""); // Hapus
+      // ----------------------------------------------------
+      // 2. EKSTRAKSI JARAK (Distance) - INTELLIGENT MODE
+      // ----------------------------------------------------
+      
+      // Step A: Normalisasi Kata Bilangan Lisan
+      // Contoh: "jarak tiga koma lima kilo" -> "jarak 3.5 kilo"
+      // Contoh: "jarak setengah kilo" -> "jarak 0.5 kilo"
+      let distTextForAnalysis = wordToNumber(processingText);
+      
+      // Step B: Regex Komprehensif
+      // Menangkap: "3.5 km", "10 meter", "0.5 kilo", "jarak 5"
+      let detectedDist = 0;
+      let detectedDistStr = "";
+
+      // Pola 1: Angka + Satuan (KM/M)
+      const unitRegex = /(\d+(?:\.\d+)?)\s*(km|kilo|kilometer|meter|m)\b/i;
+      const unitMatch = distTextForAnalysis.match(unitRegex);
+
+      if (unitMatch) {
+          let val = parseFloat(unitMatch[1]);
+          const unit = unitMatch[2].toLowerCase();
+
+          // Konversi Meter ke KM
+          if (unit === 'meter' || unit === 'm') {
+              val = val / 1000;
+          }
+          
+          detectedDist = val;
+          // Hapus dari teks asli (perlu matching balik karena distTextForAnalysis sudah diubah)
+          // Kita pakai regex yang lebih longgar untuk menghapus dari processingText asli
+          const removalRegex = new RegExp(`(${unitMatch[1]}|\\w+)\\s*${unit}`, 'i'); 
+          processingText = processingText.replace(removalRegex, "");
+      } 
+      // Pola 2: Konteks "Jarak" + Angka (tanpa satuan eksplisit)
+      else {
+          const contextRegex = /\b(jarak|jauhnya)\s+(\d+(?:\.\d+)?)\b/i;
+          const contextMatch = distTextForAnalysis.match(contextRegex);
+          
+          if (contextMatch) {
+              detectedDist = parseFloat(contextMatch[2]);
+              // Asumsi default jika tidak ada satuan adalah KM
+              
+              // Hapus dari teks asli
+              const removalRegex = new RegExp(`(jarak|jauhnya)\\s+(${contextMatch[2]}|\\w+)`, 'i');
+              processingText = processingText.replace(removalRegex, "");
+          }
       }
 
+      // Step C: Set State & Formatting
+      if (detectedDist > 0) {
+          // Format ke string maksimal 1 desimal jika bulat, atau 2 jika perlu
+          const finalDistStr = detectedDist % 1 === 0 ? detectedDist.toString() : detectedDist.toFixed(1);
+          setTripDist(finalDistStr);
+      }
+
+      // ----------------------------------------------------
       // 3. EKSTRAKSI APLIKASI & LAYANAN
-      // Set state jika ketemu, lalu hapus kata kuncinya dari kalimat
+      // ----------------------------------------------------
       if (processingText.includes('maxim')) { setAppSource('Maxim'); processingText = processingText.replace('maxim', ''); }
       else if (processingText.includes('gojek') || processingText.includes('gofood')) { setAppSource('Gojek'); processingText = processingText.replace(/gojek|gofood|gosend/g, ''); }
       else if (processingText.includes('grab')) { setAppSource('Grab'); processingText = processingText.replace(/grab|grabfood/g, ''); }
@@ -220,17 +278,15 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       else if (processingText.includes('send') || processingText.includes('paket') || processingText.includes('antar') || processingText.includes('kirim')) { setServiceType('Send'); processingText = processingText.replace(/send|paket|antar|kirim|barang/g, ''); }
       else if (processingText.includes('bike') || processingText.includes('ride') || processingText.includes('penumpang') || processingText.includes('orang') || processingText.includes('jemput')) { setServiceType('Bike'); processingText = processingText.replace(/bike|ride|penumpang|orang|jemput|motor/g, ''); }
 
-      // 4. MEMBERSIHKAN KATA SAMBUNG (FILLER)
-      // Hapus kata-kata tidak penting agar sisa kalimat murni Lokasi/Catatan
-      const fillers = ['dapat', 'orderan', 'seharga', 'tarif', 'ongkir', 'rupiah', 'tunai', 'cash', 'di', 'ke', 'dari', 'namanya'];
+      // ----------------------------------------------------
+      // 4. CLEANUP & LOCATION
+      // ----------------------------------------------------
+      const fillers = ['dapat', 'orderan', 'seharga', 'tarif', 'ongkir', 'rupiah', 'tunai', 'cash', 'di', 'ke', 'dari', 'namanya', 'sebesar', 'senilai'];
       fillers.forEach(word => {
           const regex = new RegExp(`\\b${word}\\b`, 'gi');
           processingText = processingText.replace(regex, " ");
       });
 
-      // 5. MEMISAHKAN LOKASI & CATATAN
-      // Sisanya sekarang kemungkinan besar adalah Lokasi.
-      // Tapi cek dulu apakah user bilang "catatan..."
       let extractedLocation = "";
       let extractedNotes = "";
 
@@ -243,15 +299,12 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
           extractedLocation = parts[0].trim();
           extractedNotes = parts[1].trim();
       } else {
-          // Tidak ada kata "catatan", berarti sisanya adalah Lokasi semua
           extractedLocation = processingText.trim();
       }
 
-      // Bersihkan spasi ganda & karakter aneh
       extractedLocation = extractedLocation.replace(/\s+/g, ' ').replace(/[^\w\s]/gi, '').trim();
       extractedNotes = extractedNotes.replace(/\s+/g, ' ').trim();
 
-      // Title Case untuk Lokasi (misal: "mie gacoan" -> "Mie Gacoan")
       if (extractedLocation.length > 0) {
           const formattedLoc = extractedLocation.toLowerCase().replace(/(?:^|\s)\S/g, a => a.toUpperCase());
           setOrigin(formattedLoc);
@@ -423,7 +476,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
                     </p>
                 ) : (
                     <p className="text-[10px] text-gray-500 italic">
-                        Coba: "Dapat Gojek <span className="text-cyan-600 font-bold">di Trans Studio</span> lima puluh ribu, jarak 10 kilo"
+                        Coba: "Dapat Gojek <span className="text-cyan-600 font-bold">di Trans Studio</span> lima puluh ribu, <span className="text-white">jarak 3 koma 5 kilo</span>"
                     </p>
                 )}
             </div>
@@ -482,14 +535,21 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
                 <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1">
                     <Gauge size={12}/> Jarak (KM)
                 </label>
-                <input 
-                    type="number"
-                    step="0.1"
-                    value={tripDist}
-                    onChange={(e) => setTripDist(e.target.value)}
-                    placeholder="0.0"
-                    className="w-full p-3 bg-[#1e1e1e] border border-gray-700 rounded-xl text-white font-mono text-center focus:border-cyan-500"
-                />
+                <div className="relative">
+                    <input 
+                        type="number"
+                        step="0.1"
+                        value={tripDist}
+                        onChange={(e) => setTripDist(e.target.value)}
+                        placeholder="0.0"
+                        className={`w-full p-3 border rounded-xl text-white font-mono text-center focus:border-cyan-500 transition-all ${tripDist ? 'bg-emerald-900/20 border-emerald-500/50' : 'bg-[#1e1e1e] border-gray-700'}`}
+                    />
+                    {tripDist && (
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 animate-in fade-in">
+                            <CheckCircle2 size={16} />
+                        </div>
+                    )}
+                </div>
              </div>
         </div>
 

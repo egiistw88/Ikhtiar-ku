@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ViewState, TimeState, Hotspot, DailyFinancial, ShiftState } from './types';
-import { getCurrentTimeInfo, getLocalDateString } from './utils';
-import { getHotspots, getShiftState, runDataHousekeeping, getTodayFinancials, clearShiftState } from './services/storage';
+import { getCurrentTimeInfo, getLocalDateString, playSound } from './utils';
+import { getHotspots, getShiftState, runDataHousekeeping, getTodayFinancials, clearShiftState, saveShiftState } from './services/storage';
 import RadarView from './components/RadarView';
 import MapView from './components/MapView';
 import JournalEntry from './components/JournalEntry';
@@ -12,6 +12,7 @@ import SplashView from './components/SplashView';
 import SettingsView from './components/SettingsView';
 import ShiftSummary from './components/ShiftSummary';
 import PreRideSetup from './components/PreRideSetup';
+import RestModeOverlay from './components/RestModeOverlay';
 import { Radar, Map as MapIcon, Plus, Wallet, Shield, CheckCircle } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -24,8 +25,9 @@ const App: React.FC = () => {
   // Toast State
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Summary Data State
+  // Summary & Rest Data State
   const [summaryData, setSummaryData] = useState<{ finance: DailyFinancial | null } | null>(null);
+  const [isResting, setIsResting] = useState(false);
 
   const refreshAppData = () => {
       // 1. Cek Hari Baru (Auto-Reset Logic)
@@ -38,8 +40,13 @@ const App: React.FC = () => {
           setShiftState(null);
           setView('setup'); // Paksa masuk setup ulang
           showToast("Hari Baru! Silakan cek modal kembali.");
+          setIsResting(false);
       } else {
           setShiftState(storedShift);
+          // Check Rest State
+          if (storedShift?.restData?.isActive) {
+              setIsResting(true);
+          }
       }
 
       setHotspots(getHotspots());
@@ -109,6 +116,29 @@ const App: React.FC = () => {
       setView('setup');
       setShiftState(null);
   };
+  
+  // REST MODE HANDLERS
+  const handleStartRest = () => {
+      if (!shiftState) return;
+      const newState: ShiftState = {
+          ...shiftState,
+          restData: { isActive: true, startTime: Date.now(), type: 'ISTIRAHAT' }
+      };
+      saveShiftState(newState);
+      setShiftState(newState);
+      setIsResting(true);
+      playSound('success');
+  };
+
+  const handleResumeWork = () => {
+      if (!shiftState) return;
+      // Remove rest data
+      const { restData, ...resumedState } = shiftState;
+      saveShiftState(resumedState as ShiftState);
+      setShiftState(resumedState as ShiftState);
+      setIsResting(false);
+      showToast("Selamat Narik Lagi Ndan!");
+  };
 
   // Toast Handler
   const showToast = (msg: string) => {
@@ -125,6 +155,15 @@ const App: React.FC = () => {
   return (
     <div className="h-[100dvh] w-full flex flex-col bg-app-bg text-app-text relative overflow-hidden">
       
+      {/* REST MODE OVERLAY (High Z-Index) */}
+      {isResting && shiftState?.restData && (
+          <RestModeOverlay 
+              financials={getTodayFinancials()}
+              startTime={shiftState.restData.startTime}
+              onResume={handleResumeWork}
+          />
+      )}
+
       <SOSButton />
 
       {/* GLOBAL TOAST NOTIFICATION - BOTTOM POSITION */}
@@ -144,6 +183,7 @@ const App: React.FC = () => {
                 shiftState={shiftState}
                 onOpenSettings={() => setView('settings')}
                 onOpenSummary={handleOpenSummary}
+                onRequestRest={handleStartRest}
                 onToast={showToast}
             />
         )}

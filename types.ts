@@ -47,6 +47,13 @@ export interface ShiftState {
     startTime: number; // Timestamp ms
     status: 'CRITICAL' | 'WARNING' | 'SAFE';
     recommendation: string;
+    
+    // NEW: Rest Mode Data
+    restData?: {
+        isActive: boolean;
+        startTime: number;
+        type: 'SHOLAT' | 'MAKAN' | 'ISTIRAHAT';
+    };
 }
 
 // Financial Types

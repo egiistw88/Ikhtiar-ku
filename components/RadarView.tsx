@@ -4,7 +4,8 @@ import { calculateDistance, getTimeDifference, vibrate, playSound } from '../uti
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
 import { CATEGORY_COLORS } from '../constants';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Disc, Power, Battery, Zap, RefreshCw, Sparkles, X, MapPin, Target, Loader2, Utensils, Bike, Package, ShoppingBag, Layers } from 'lucide-react';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Disc, Power, Battery, Zap, RefreshCw, Sparkles, X, MapPin, Target, Loader2, Utensils, Bike, Package, ShoppingBag, Layers, Coffee, Moon } from 'lucide-react';
+import CustomDialog from './CustomDialog';
 
 interface RadarViewProps {
   hotspots: Hotspot[];
@@ -12,6 +13,7 @@ interface RadarViewProps {
   shiftState: ShiftState | null;
   onOpenSettings: () => void;
   onOpenSummary: (finance: DailyFinancial | null) => void;
+  onRequestRest: () => void; // NEW PROP
   onToast: (msg: string) => void;
 }
 
@@ -25,7 +27,7 @@ interface ScoredHotspot extends Hotspot {
 
 type QuickFilterType = 'ALL' | 'FOOD' | 'BIKE' | 'SEND';
 
-const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, currentTime, shiftState, onOpenSettings, onOpenSummary, onToast }) => {
+const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, currentTime, shiftState, onOpenSettings, onOpenSummary, onRequestRest, onToast }) => {
   const [localHotspots, setLocalHotspots] = useState<Hotspot[]>(initialHotspots);
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
   const [isRainMode, setIsRainMode] = useState(false);
@@ -34,20 +36,18 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
   const [settings, setSettings] = useState<UserSettings>(getUserSettings());
   const [timeOnline, setTimeOnline] = useState<number>(0);
   
-  // NEW: Quick Filter State
   const [quickFilter, setQuickFilter] = useState<QuickFilterType>('ALL');
 
-  // AI & Scanning State
   const [isScanning, setIsScanning] = useState(false);
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
-
-  // GPS Accuracy State
   const [gpsReady, setGpsReady] = useState(false);
+
+  // Power Menu State
+  const [showPowerMenu, setShowPowerMenu] = useState(false);
 
   useEffect(() => {
     syncData();
-    // Force location update on mount
     if (navigator.geolocation) {
         const watchId = navigator.geolocation.watchPosition(
             (pos) => {
@@ -59,7 +59,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         );
         return () => navigator.geolocation.clearWatch(watchId);
     }
-    const interval = setInterval(syncData, 30000); // Sync faster
+    const interval = setInterval(syncData, 30000); 
     return () => clearInterval(interval);
   }, [shiftState]); 
 
@@ -81,8 +81,6 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
       vibrate(10);
       playSound('click');
       setIsScanning(true);
-      
-      // Simulate scanning delay
       setTimeout(() => {
           syncData();
           setIsScanning(false);
@@ -96,9 +94,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
       playSound('click');
       setIsAiLoading(true);
       setAiAdvice(null);
-      
       const strategy = await generateDriverStrategy(predictions, financials, shiftState);
-      
       setAiAdvice(strategy);
       setIsAiLoading(false);
       vibrate([50, 50]);
@@ -117,18 +113,12 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
       onToast(isAccurate ? "Validasi: Gacor!" : "Validasi: Anyep");
   };
 
-  // NEW: Quick Filter Logic Handler
   const handleQuickFilter = (type: QuickFilterType) => {
       vibrate(10);
       playSound('click');
       setQuickFilter(type);
-      
-      // Also update isRainMode implicitly for Food? No, keep it separate.
-      if (type === 'FOOD') {
-          onToast("Filter: Kuliner & Shop");
-      } else if (type === 'BIKE') {
-          onToast("Filter: Penumpang");
-      }
+      if (type === 'FOOD') onToast("Filter: Kuliner & Shop");
+      else if (type === 'BIKE') onToast("Filter: Penumpang");
   };
 
   const predictions: ScoredHotspot[] = useMemo(() => {
@@ -136,12 +126,10 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
     const currentNet = financials?.netCash || 0;
     const isBehind = (currentNet < (settings.targetRevenue * 0.4)); 
 
-    // Filter Step 1: Valid & Preference Check (Combined with Quick Filter)
     let candidates = localHotspots.filter(h => {
         const bad = h.validations?.find(v => v.date === todayStr && !v.isAccurate);
         if (bad) return false;
         
-        // 1. QUICK FILTER OVERRIDE
         if (quickFilter === 'FOOD') {
             if (!(h.category.includes('Culinary') || h.type === 'Food' || h.type.includes('Shop') || h.category === 'Mall/Lifestyle')) return false;
         } else if (quickFilter === 'BIKE') {
@@ -149,7 +137,6 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         } else if (quickFilter === 'SEND') {
             if (!(h.type.includes('Delivery') || h.category === 'Logistics')) return false;
         } else {
-            // If ALL, fallback to User Settings Preferences
             const p = settings.preferences;
             if (!p.showFood && (h.category.includes('Culinary') || h.type === 'Food')) return false;
             if (!p.showBike && (h.type.includes('Bike') || h.type === 'Ride')) return false;
@@ -168,27 +155,24 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
 
         const tDiff = getTimeDifference(h.predicted_hour, currentTime.timeString);
         
-        // Time Scoring
         if (isStrictTime) {
-            if (h.day !== currentTime.dayName) score -= 1000; // Wrong day
-            if (tDiff > 90) score -= 50; // > 1.5 hours diff
+            if (h.day !== currentTime.dayName) score -= 1000; 
+            if (tDiff > 90) score -= 50; 
             reason = "Sesuai Jadwal";
         } else {
             reason = "Alternatif Terdekat";
             score -= 30; 
         }
 
-        // Distance Scoring
         if (gpsReady) {
             const fuelLevel = shiftState?.startFuel || 50;
             const radiusLimit = isRainMode ? 5 : (fuelLevel < 25 ? 4 : 20);
-            if (dist > radiusLimit) score -= 500; // Too far
-            else score -= (dist * 3); // Closer is better
+            if (dist > radiusLimit) score -= 500; 
+            else score -= (dist * 3); 
         } else {
             score -= 10;
         }
 
-        // Condition Modifiers
         if (isRainMode && ['Mall/Lifestyle', 'Culinary'].includes(h.category)) {
             score += 50; reason = "Spot Teduh & Gacor";
         }
@@ -199,12 +183,11 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
             score += 10; 
         }
 
-        // Maintenance Logic
         const maintenanceInterval = garage?.serviceInterval || 2000;
         const kmSinceOil = (garage?.currentOdometer || 0) - (garage?.lastOilChangeKm || 0);
         
         if (kmSinceOil > maintenanceInterval && h.category === 'Service') {
-            score = 2000; // Top priority
+            score = 2000; 
             isMaintenance = true; 
             reason = "URGENT: SERVIS";
         }
@@ -212,18 +195,14 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         return { ...h, distance: dist, score: Math.round(score), matchReason: reason, isMaintenance };
     };
 
-    // Strategy 1: Strict Time & Day
-    let results = candidates
-        .map(h => scoreSpot(h, true))
-        .filter(h => h.score > 40);
+    let results = candidates.map(h => scoreSpot(h, true)).filter(h => h.score > 40);
 
-    // Strategy 2: Fallback (Relaxed Time, strict Distance)
     if (results.length < 3) {
         const fallbacks = candidates
             .map(h => ({ ...scoreSpot(h, false), isFallback: true }))
             .filter(h => {
                 if (gpsReady) return h.score > 20 && h.distance < 5;
-                return h.score > 20; // Relaxed distance check if GPS not ready
+                return h.score > 20; 
             }) 
             .sort((a, b) => b.score - a.score)
             .slice(0, 5);
@@ -253,6 +232,40 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
   return (
     <div className="pt-4 px-4 space-y-6">
       
+      {/* POWER MENU DIALOG */}
+      {showPowerMenu && (
+          <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+              <div className="bg-[#1e1e1e] border border-gray-700 w-full max-w-sm rounded-2xl p-6 shadow-2xl relative animate-in slide-in-from-bottom-10">
+                  <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-xl font-black text-white uppercase">Mau Ngapain Ndan?</h3>
+                      <button onClick={() => setShowPowerMenu(false)} className="p-2 bg-gray-800 rounded-full"><X size={18} className="text-gray-400"/></button>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                       <button 
+                            onClick={() => { setShowPowerMenu(false); onRequestRest(); }}
+                            className="bg-gray-800 border border-gray-600 hover:bg-gray-700 p-4 rounded-xl flex flex-col items-center gap-2 group transition-all active:scale-95"
+                        >
+                            <div className="w-12 h-12 rounded-full bg-blue-900/30 flex items-center justify-center group-hover:bg-blue-900/50">
+                                <Coffee size={24} className="text-blue-400" />
+                            </div>
+                            <span className="text-sm font-bold text-gray-200">Istirahat Dulu</span>
+                        </button>
+
+                        <button 
+                            onClick={() => { setShowPowerMenu(false); onOpenSummary(financials); }}
+                            className="bg-gray-800 border border-gray-600 hover:bg-gray-700 p-4 rounded-xl flex flex-col items-center gap-2 group transition-all active:scale-95"
+                        >
+                            <div className="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center group-hover:bg-red-900/50">
+                                <Power size={24} className="text-red-400" />
+                            </div>
+                            <span className="text-sm font-bold text-gray-200">Tutup Buku</span>
+                        </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* 1. DASHBOARD HEADER */}
       <div className="relative bg-app-card rounded-3xl p-5 border border-app-border overflow-hidden shadow-lg">
         <div className={`absolute top-0 right-0 w-40 h-40 blur-[80px] rounded-full opacity-20 transition-colors duration-1000 ${progress >= 100 ? 'bg-emerald-400' : 'bg-app-primary'}`}></div>
@@ -319,9 +332,9 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         </div>
 
         <button 
-            onClick={() => { onOpenSummary(financials); playSound('click'); }}
+            onClick={() => { setShowPowerMenu(true); playSound('click'); }}
             className="absolute bottom-4 right-4 bg-[#222] hover:bg-gray-700 text-red-400 p-2 rounded-lg border border-gray-700 transition-colors shadow-lg z-20"
-            title="Tutup Buku / Selesai Shift"
+            title="Menu Istirahat / Tutup Buku"
         >
             <Power size={18} />
         </button>

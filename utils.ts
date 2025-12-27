@@ -1,3 +1,4 @@
+
 import { DAYS_INDONESIA } from './constants';
 
 export const getCurrentTimeInfo = () => {
@@ -156,3 +157,20 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
 function deg2rad(deg: number) {
   return deg * (Math.PI / 180);
 }
+
+// NEW: Rest Advice Generator based on Time
+export const getRestAdvice = (hour: number) => {
+    // Sholat Times (Approximation)
+    if (hour >= 4 && hour < 5) return { type: 'SHOLAT', text: 'Waktunya Subuh Ndan. Pejuang subuh rezekinya ampuh.', icon: 'moon' };
+    if (hour >= 11 && hour <= 12) return { type: 'SHOLAT', text: 'Adzan Dzuhur berkumandang. Rehat sejenak, sujud dulu biar berkah.', icon: 'sun' };
+    if (hour >= 15 && hour < 16) return { type: 'SHOLAT', text: 'Waktunya Ashar. Istirahatkan punggung dan hati.', icon: 'cloud-sun' };
+    if (hour >= 17 && hour < 19) return { type: 'SHOLAT', text: 'Maghrib tiba. Matikan aplikasi, waktunya pulang kepada-Nya.', icon: 'sunset' };
+    if (hour >= 19 && hour < 20) return { type: 'SHOLAT', text: 'Isya dulu Ndan. Biar hati tenang narik lagi.', icon: 'moon-stars' };
+
+    // Meals & Rest
+    if (hour >= 12 && hour < 14) return { type: 'MAKAN', text: 'Jangan lupa makan siang! Mesin aja butuh bensin, apalagi badan.', icon: 'coffee' };
+    if (hour >= 23 || hour < 4) return { type: 'ISTIRAHAT', text: 'Sudah larut malam. Bahaya angin duduk, mending pulang Ndan.', icon: 'bed' };
+    
+    // General
+    return { type: 'ISTIRAHAT', text: 'Otot tegang butuh peregangan. Ngopi dulu 15 menit biar fokus lagi.', icon: 'coffee' };
+};

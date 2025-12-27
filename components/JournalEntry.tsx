@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Hotspot, Transaction } from '../types';
 import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate } from '../utils';
-import { Save, MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, MicOff, Zap } from 'lucide-react';
+import { Save, MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, MicOff, Zap, Volume2 } from 'lucide-react';
 import { addHotspot, addTransaction } from '../services/storage';
 import CustomDialog from './CustomDialog';
 
@@ -39,6 +39,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
   // Voice State
   const [isListening, setIsListening] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<string>('Ketuk untuk Bicara'); // Feedback text
   const recognitionRef = useRef<any>(null);
 
   // Dialog State
@@ -82,31 +83,70 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       }
 
       if (isListening) {
-          recognitionRef.current?.stop();
-          setIsListening(false);
+          stopListening();
           return;
       }
 
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'id-ID'; // Wajib Bahasa Indonesia
-      recognition.continuous = false;
-      recognition.interimResults = false;
+      startListening(SpeechRecognition);
+  };
 
-      recognition.onstart = () => setIsListening(true);
-      recognition.onend = () => setIsListening(false);
-      recognition.onerror = (e: any) => { 
-          console.error(e); 
-          setIsListening(false); 
-          showAlert("Gagal Dengar", "Coba lagi Ndan, atau cek izin mikrofon.");
-      };
+  const startListening = (SpeechRecognition: any) => {
+      try {
+          const recognition = new SpeechRecognition();
+          recognition.lang = 'id-ID'; // Wajib Bahasa Indonesia
+          recognition.continuous = false; // Stop after one sentence
+          recognition.interimResults = true; // Show text while speaking
 
-      recognition.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript.toLowerCase();
-          parseVoiceCommand(transcript);
-      };
+          recognition.onstart = () => {
+              setIsListening(true);
+              setVoiceStatus("Mendengarkan...");
+          };
 
-      recognitionRef.current = recognition;
-      recognition.start();
+          recognition.onend = () => {
+              setIsListening(false);
+              // Reset status text after delay unless logic changed it
+              setTimeout(() => {
+                 if (!isListening) setVoiceStatus("Ketuk untuk Bicara");
+              }, 2000);
+          };
+
+          recognition.onerror = (e: any) => { 
+              console.error(e); 
+              setIsListening(false);
+              if (e.error === 'no-speech') {
+                  setVoiceStatus("Tidak ada suara...");
+              } else if (e.error === 'not-allowed') {
+                  showAlert("Izin Ditolak", "Izinkan akses mikrofon di pengaturan browser.");
+                  setVoiceStatus("Izin Mikrofon Ditolak");
+              } else {
+                  setVoiceStatus("Gagal. Coba lagi.");
+              }
+          };
+
+          recognition.onresult = (event: any) => {
+              const transcript = event.results[0][0].transcript.toLowerCase();
+              
+              // Visual feedback realtime
+              setVoiceStatus(`"${transcript}"`);
+
+              if (event.results[0].isFinal) {
+                  parseVoiceCommand(transcript);
+              }
+          };
+
+          recognitionRef.current = recognition;
+          recognition.start();
+      } catch (e) {
+          console.error(e);
+          showAlert("Error", "Gagal memulai mikrofon.");
+      }
+  };
+
+  const stopListening = () => {
+      if (recognitionRef.current) {
+          recognitionRef.current.stop();
+          setIsListening(false);
+      }
   };
 
   const showAlert = (title: string, msg: string) => {
@@ -114,88 +154,95 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   };
 
   const parseVoiceCommand = (text: string) => {
-      // Step 1: Detect Money (Slang & Formal)
+      vibrate([30, 50, 30]); // Haptic "Processing"
+      setVoiceStatus("Memproses...");
+
+      // 1. Detect Money (Slang & Numeric)
       const moneyMap: Record<string, number> = {
           'goceng': 5000, 'ceban': 10000, 'cenggo': 1500, 'noban': 20000, 
           'goban': 50000, 'cepek': 100000, 'juta': 1000000,
-          'ribu': 1000, 'rb': 1000
+          'setengah juta': 500000
       };
 
       let amount = 0;
       
-      // Regex untuk "15 ribu", "20rb"
-      const digitMatch = text.match(/(\d+)\s*(ribu|rb)/);
+      // Regex "15 ribu", "20rb", "15000"
+      const digitMatch = text.match(/(\d+)\s*(ribu|rb|k|000)/);
+      const plainDigitMatch = text.match(/(\d+)/); // Fallback for just numbers like "15" (implies 15k in Ojol context)
+
       if (digitMatch) {
           amount = parseInt(digitMatch[1]) * 1000;
       } else {
-          // Cek slang satu per satu
+          // Check Slang
           for (const [key, val] of Object.entries(moneyMap)) {
               if (text.includes(key)) {
-                  if (key === 'ribu' || key === 'rb') continue; // Skip modifier
                   amount = val;
-                  break; // Prioritize first slang found
+                  break;
               }
           }
-          // Fallback: cari angka saja
-          if (amount === 0) {
-             const plainDigit = text.match(/(\d+)/);
-             if (plainDigit) {
-                 // Asumsi jika driver nyebut "15" maksudnya "15.000" (konteks ojol)
-                 const val = parseInt(plainDigit[1]);
-                 amount = val < 1000 ? val * 1000 : val;
-             }
+          // Fallback: simple number logic (e.g., user says "dua puluh lima")
+          // Not implemented fully to avoid false positives with dates/addresses, 
+          // assuming users say "ribu" or use slang.
+          
+          if (amount === 0 && plainDigitMatch) {
+             const val = parseInt(plainDigitMatch[1]);
+             // Contextual guess: if val < 1000, likely meant thousands
+             amount = val < 1000 ? val * 1000 : val;
           }
       }
 
       if (amount > 0) setArgoRaw(formatCurrencyInput(amount.toString()));
 
-      // Step 2: Smart Categorization
-      // Auto-detect service based on brand/keywords
-      if (text.includes('gofood') || text.includes('grabfood') || text.includes('shopeefood') || text.includes('gacoan') || text.includes('mcd') || text.includes('kfc') || text.includes('mixue')) {
-          setServiceType('Food');
-      } else if (text.includes('gomart') || text.includes('belanja') || text.includes('indomaret') || text.includes('alfamart')) {
-          setServiceType('Shop');
-      } else if (text.includes('gosend') || text.includes('paket') || text.includes('barang')) {
-          setServiceType('Send');
-      } else if (text.includes('goride') || text.includes('grabbike') || text.includes('penumpang') || text.includes('sekolah') || text.includes('stasiun')) {
-          setServiceType('Bike');
-      }
-
-      // Step 3: Detect App Source
+      // 2. Smart Service & App Detection
       if (text.includes('maxim')) setAppSource('Maxim');
       else if (text.includes('gojek') || text.includes('gofood') || text.includes('gosend')) setAppSource('Gojek');
       else if (text.includes('grab')) setAppSource('Grab');
       else if (text.includes('shopee')) setAppSource('Shopee');
       else if (text.includes('indriver')) setAppSource('Indriver');
 
-      // Step 4: Extract Location Name (Cleanup)
-      const removeWords = [
-          'dapat', 'orderan', 'di', 'ke', 'dari', 'seharga', 'tarif', 'ongkir', 'rupiah',
-          'maxim', 'gojek', 'grab', 'shopee', 'indriver', 'gofood', 'grabfood',
-          'ribu', 'rb', 'goceng', 'ceban', 'goban', 'cepek', 'noban',
-          'food', 'bike', 'send', 'shop', 'tunai', 'cash'
-      ];
-      
-      let loc = text;
-      // Remove numbers
-      loc = loc.replace(/\d+/g, '');
-      // Remove keywords
-      removeWords.forEach(w => {
-          const regex = new RegExp(`\\b${w}\\b`, 'gi');
-          loc = loc.replace(regex, '');
-      });
-      
-      loc = loc.trim().replace(/\s+/g, ' '); // Clean double spaces
-      loc = loc.replace(/\b\w/g, c => c.toUpperCase()); // Title Case
+      if (text.includes('food') || text.includes('makan') || text.includes('gacoan') || text.includes('kfc') || text.includes('mcd')) setServiceType('Food');
+      else if (text.includes('shop') || text.includes('belanja') || text.includes('mart') || text.includes('indo') || text.includes('alfa')) setServiceType('Shop');
+      else if (text.includes('send') || text.includes('paket') || text.includes('antar barang')) setServiceType('Send');
+      else if (text.includes('bike') || text.includes('ride') || text.includes('penumpang') || text.includes('orang') || text.includes('jemput')) setServiceType('Bike');
 
-      if (loc.length > 2) {
-          setOrigin(loc);
-      } else {
-          // If extracted text is too short, probably failed, don't overwrite if user already typed
-          if (!origin) setOrigin("Titik Jemput (Edit Manual)");
-      }
+      // 3. Location Extraction (Preposition Strategy)
+      // Mencari kata setelah "di", "ke", "dari"
+      let detectedLoc = "";
+      const prepositionMatch = text.match(/\b(di|ke|dari)\b\s+(.+)/i);
       
-      vibrate([50, 50]); // Success vibration
+      if (prepositionMatch && prepositionMatch[2]) {
+          // Ambil segmen setelah preposisi
+          let segment = prepositionMatch[2];
+          
+          // Potong jika ketemu kata kunci harga/angka di belakang
+          // Contoh: "di Mie Gacoan lima belas ribu" -> "Mie Gacoan"
+          const splitByMoney = segment.split(/\b(\d+|ribu|rb|goceng|ceban|goban|cepek)\b/);
+          detectedLoc = splitByMoney[0].trim();
+      } else {
+          // Fallback: Pembersihan kata kunci manual
+          const removeWords = [
+              'dapat', 'orderan', 'di', 'ke', 'dari', 'seharga', 'tarif', 'ongkir', 'rupiah',
+              'maxim', 'gojek', 'grab', 'shopee', 'indriver', 'gofood', 'grabfood',
+              'ribu', 'rb', 'goceng', 'ceban', 'goban', 'cepek', 'noban',
+              'food', 'bike', 'send', 'shop', 'tunai', 'cash'
+          ];
+          let cleaned = text;
+          cleaned = cleaned.replace(/\d+/g, ''); // Hapus angka
+          removeWords.forEach(w => {
+              const regex = new RegExp(`\\b${w}\\b`, 'gi');
+              cleaned = cleaned.replace(regex, '');
+          });
+          detectedLoc = cleaned.replace(/\s+/g, ' ').trim();
+      }
+
+      // Formatting Title Case
+      if (detectedLoc.length > 2) {
+          const formattedLoc = detectedLoc.toLowerCase().replace(/(?:^|\s)\S/g, a => a.toUpperCase());
+          setOrigin(formattedLoc);
+      }
+
+      setVoiceStatus("Berhasil!");
+      setTimeout(() => setVoiceStatus("Ketuk untuk Bicara"), 2000);
   };
 
   const handleArgoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -315,32 +362,44 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
       <form onSubmit={handleSubmit} className="space-y-6">
         
-        {/* VOICE INPUT BUTTON */}
-        <div className="relative">
+        {/* VOICE INPUT BUTTON - REDESIGNED */}
+        <div className="relative group">
+            {/* Pulsing Rings Animation */}
+            {isListening && (
+                <>
+                    <div className="absolute inset-0 bg-red-500 rounded-2xl animate-ping opacity-20"></div>
+                    <div className="absolute -inset-1 bg-red-500/20 rounded-3xl animate-pulse"></div>
+                </>
+            )}
+            
             <button 
                 type="button"
                 onClick={toggleVoiceInput}
-                className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all border-2 overflow-hidden relative ${isListening ? 'bg-red-600 text-white border-red-500' : 'bg-[#222] text-cyan-400 border-gray-700 hover:border-cyan-500'}`}
+                className={`w-full py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all border-2 overflow-hidden relative shadow-xl z-10 ${isListening ? 'bg-red-600 text-white border-red-500 scale-[1.02]' : 'bg-[#222] text-cyan-400 border-gray-700 hover:border-cyan-500 hover:bg-[#2a2a2a]'}`}
             >
                 {/* Visualizer Effect when listening */}
-                {isListening && (
-                    <div className="absolute inset-0 bg-red-600 flex items-center justify-center gap-1 opacity-20">
-                         <div className="w-1 h-full bg-white animate-[bounce_0.5s_infinite]"></div>
-                         <div className="w-1 h-full bg-white animate-[bounce_0.5s_infinite_0.1s]"></div>
-                         <div className="w-1 h-full bg-white animate-[bounce_0.5s_infinite_0.2s]"></div>
-                         <div className="w-1 h-full bg-white animate-[bounce_0.5s_infinite_0.3s]"></div>
-                         <div className="w-1 h-full bg-white animate-[bounce_0.5s_infinite_0.4s]"></div>
-                    </div>
+                {isListening ? (
+                     <Volume2 size={24} className="animate-pulse" />
+                ) : (
+                     <Mic size={24} />
                 )}
                 
-                {isListening ? <MicOff size={24} className="animate-pulse" /> : <Mic size={24} />}
-                <span className="relative z-10">{isListening ? 'MENDENGARKAN...' : 'INPUT SUARA (AI)'}</span>
+                <span className="relative z-10 uppercase tracking-wide text-sm md:text-base">
+                    {isListening ? 'Mendengarkan...' : 'Input Suara (AI)'}
+                </span>
             </button>
-            {!isListening && (
-                <p className="text-center text-[10px] text-gray-500 mt-2 italic">
-                    Coba ucapkan: "Dapat Gofood di Mie Gacoan dua puluh lima ribu"
+            
+            {/* Status Text & Hint */}
+            <div className={`mt-3 text-center transition-all duration-300 ${isListening ? 'opacity-100 transform translate-y-0' : 'opacity-70'}`}>
+                <p className={`text-xs font-bold ${isListening ? 'text-red-400 animate-pulse' : 'text-gray-500'}`}>
+                    {voiceStatus}
                 </p>
-            )}
+                {!isListening && (
+                    <p className="text-[10px] text-gray-600 mt-1 italic">
+                        Contoh: "Dapat Gofood <span className="text-cyan-600 font-bold">di Mie Gacoan</span> dua puluh lima ribu"
+                    </p>
+                )}
+            </div>
         </div>
 
         <div className="space-y-2">

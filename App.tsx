@@ -84,11 +84,11 @@ const App: React.FC = () => {
       
       <SOSButton />
 
-      {/* GLOBAL TOAST NOTIFICATION */}
+      {/* GLOBAL TOAST NOTIFICATION - BOTTOM POSITION */}
       {toastMessage && (
-          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[2000] bg-emerald-600 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 animate-in slide-in-from-top-4 fade-in duration-300">
-              <CheckCircle size={18} className="text-white" />
-              <span className="font-bold text-sm">{toastMessage}</span>
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[2000] bg-emerald-600 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 animate-in slide-in-from-bottom-4 fade-in duration-300 w-max max-w-[90%] border border-emerald-400/50">
+              <CheckCircle size={18} className="text-white fill-emerald-800" />
+              <span className="font-bold text-sm drop-shadow-md">{toastMessage}</span>
           </div>
       )}
 

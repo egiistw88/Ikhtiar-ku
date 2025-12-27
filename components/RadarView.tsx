@@ -305,12 +305,20 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
 
         <div className="space-y-3 pb-24">
             {predictions.length === 0 ? (
-                <div className="py-12 text-center border-2 border-dashed border-gray-800 rounded-2xl bg-[#111]">
+                <div className="py-12 text-center border-2 border-dashed border-gray-800 rounded-2xl bg-[#111] space-y-4">
                     <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-3">
                         <CloudRain size={32} className="text-gray-500" />
                     </div>
-                    <p className="text-gray-400 font-bold">Area Sepi (Zona Anyep)</p>
-                    <p className="text-xs text-gray-600 mt-1 max-w-[200px] mx-auto">Saran: Geser ke pusat keramaian atau matikan filter.</p>
+                    <div>
+                        <p className="text-gray-400 font-bold">Area Sepi (Zona Anyep)</p>
+                        <p className="text-xs text-gray-600 mt-1 max-w-[200px] mx-auto">Saran: Geser ke pusat keramaian atau matikan filter.</p>
+                    </div>
+                    <button 
+                        onClick={handleManualScan}
+                        className="px-6 py-2 bg-gray-800 text-app-primary border border-gray-700 rounded-full text-xs font-bold animate-pulse hover:bg-gray-700"
+                    >
+                        REFRESH RADAR
+                    </button>
                 </div>
             ) : (
                 predictions.map(spot => (

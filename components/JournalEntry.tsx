@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Hotspot, Transaction } from '../types';
 import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate } from '../utils';
-import { MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, Volume2, X, RotateCcw } from 'lucide-react';
+import { MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, RotateCcw, Volume2, X } from 'lucide-react';
 import { addHotspot, addTransaction } from '../services/storage';
 import CustomDialog from './CustomDialog';
 
@@ -17,6 +17,7 @@ interface JournalEntryProps {
 type AppSource = 'Gojek' | 'Grab' | 'Maxim' | 'Shopee' | 'Indriver';
 type ServiceType = 'Bike' | 'Food' | 'Send' | 'Shop';
 
+// Extend Window interface for Speech API
 interface IWindow extends Window {
   webkitSpeechRecognition: any;
   SpeechRecognition: any;
@@ -70,7 +71,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   }, []);
 
   // ==========================================
-  // SMART VOICE PARSING ENGINE V5 (FINAL FIX)
+  // LOGIKA INPUT SUARA V6 (SURGICAL EXTRACTION)
   // ==========================================
   const toggleVoiceInput = () => {
       vibrate(20);
@@ -78,7 +79,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       const SpeechRecognition = windowObj.SpeechRecognition || windowObj.webkitSpeechRecognition;
 
       if (!SpeechRecognition) {
-          showAlert("Ups!", "Browser tidak mendukung. Gunakan Chrome Mobile.");
+          showAlert("Browser Tidak Mendukung", "Fitur ini butuh Google Chrome atau WebView Android terbaru.");
           return;
       }
 
@@ -112,12 +113,13 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
           recognition.onerror = (e: any) => { 
               console.error(e); 
               setIsListening(false);
-              setVoiceStatus("Gagal mendeteksi. Coba lagi.");
+              setVoiceStatus("Gagal. Coba lagi.");
           };
 
           recognition.onresult = (event: any) => {
               const transcript = event.results[0][0].transcript;
               setTranscriptPreview(transcript);
+
               if (event.results[0].isFinal) {
                   processVoiceInput(transcript);
               }
@@ -127,6 +129,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
           recognition.start();
       } catch (e) {
           console.error(e);
+          showAlert("Error", "Gagal memulai mikrofon.");
       }
   };
 
@@ -141,221 +144,199 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       setAlertConfig({ isOpen: true, title, msg });
   };
 
-  // --- LOGIC INTI: TEXT PRE-PROCESSING ---
-  // Mengubah kata-kata angka menjadi digit agar Regex bekerja maksimal
-  const textToNumeric = (text: string): string => {
+  // --- HELPER: TEXT TO NUMBER (NORMALIZER) ---
+  // Mengubah "tiga koma lima" -> "3.5", "sepuluh ribu" -> "10000"
+  const normalizeText = (text: string): string => {
       let s = text.toLowerCase();
+
+      // 1. Ganti pecahan lisan
+      s = s.replace(/setengah/g, '0.5').replace(/satu setengah/g, '1.5');
       
-      // 1. Ganti kata desimal
+      // 2. Ganti desimal lisan
       s = s.replace(/koma/g, '.').replace(/point/g, '.').replace(/titik/g, '.');
-      
-      // 2. Ganti kata pecahan umum
-      s = s.replace(/\bsetengah\b/g, '0.5');
-      s = s.replace(/\bsatu setengah\b/g, '1.5');
-      
-      // 3. Mapping angka dasar (untuk kasus STT menulis "lima" bukan "5")
-      const map: Record<string, string> = {
+
+      // 3. Slang Uang -> Angka Langsung
+      const slangMoney: Record<string, string> = {
+          'goceng': '5000', 'ceban': '10000', 'cenggo': '1500', 
+          'noban': '20000', 'goban': '50000', 'cepek': '100000', 'juta': '1000000'
+      };
+      for (const [key, val] of Object.entries(slangMoney)) {
+          s = s.replace(new RegExp(`\\b${key}\\b`, 'g'), val);
+      }
+
+      // 4. Kata Angka -> Digit (Hanya 0-9 untuk membantu regex)
+      const wordMap: Record<string, string> = {
           'nol': '0', 'satu': '1', 'dua': '2', 'tiga': '3', 'empat': '4',
-          'lima': '5', 'enam': '6', 'tujuh': '7', 'delapan': '8', 'sembilan': '9',
-          'sepuluh': '10'
+          'lima': '5', 'enam': '6', 'tujuh': '7', 'delapan': '8', 'sembilan': '9'
       };
       
-      Object.keys(map).forEach(key => {
-          // Hanya ganti jika berdiri sendiri atau diikuti satuan
-          s = s.replace(new RegExp(`\\b${key}\\b`, 'g'), map[key]);
+      // Ganti kata angka jika diikuti oleh satuan atau angka lain
+      // Contoh: "lima ribu" -> "5 ribu", "dua kilo" -> "2 kilo"
+      Object.keys(wordMap).forEach(key => {
+         const regex = new RegExp(`\\b${key}\\s+(ribu|ratus|puluh|juta|km|kilo|meter)\\b`, 'gi');
+         s = s.replace(regex, (match) => match.replace(key, wordMap[key]));
       });
 
       return s;
   };
 
-  // --- LOGIC UTAMA EKSEKUSI ---
-  const processVoiceInput = (rawText: string) => {
-      vibrate([30, 50, 30]);
-      setVoiceStatus("Sedang Menganalisis...");
+  // --- CORE ENGINE ---
+  const processVoiceInput = (rawTranscript: string) => {
+      vibrate([50, 30, 50]);
+      setVoiceStatus("Menganalisis...");
 
-      // STEP 1: Normalisasi
-      let text = textToNumeric(rawText);
-      console.log("Normalized:", text);
+      // 1. Normalisasi Awal
+      let processingText = normalizeText(rawTranscript);
+      console.log("Normalized:", processingText);
 
-      // STEP 2: Ekstraksi Variabel & HAPUS dari teks (Cleanup)
+      // --- BEDAH 1: EKSTRAKSI UANG (PRIORITAS TERTINGGI) ---
+      // Kita cari angka yang diikuti "ribu/rb" ATAU angka > 500
+      let moneyVal = 0;
       
-      // --- A. EKSTRAKSI UANG / PENDAPATAN (Prioritas Utama) ---
-      let moneyFound = 0;
+      // Pattern A: "10 ribu", "10rb", "10 k"
+      const moneyPatternA = /(\d+(?:[\.,]\d+)?)\s*(ribu|rb|k|000)\b/i;
+      const matchA = processingText.match(moneyPatternA);
       
-      // Cek Slang: Goceng, Ceban, dll
-      const slangMap: Record<string, number> = {
-          'goceng': 5000, 'ceban': 10000, 'noban': 20000, 'goban': 50000, 
-          'cepek': 100000, 'juta': 1000000
-      };
-      for (const [key, val] of Object.entries(slangMap)) {
-          if (text.includes(key)) {
-              moneyFound = val;
-              text = text.replace(key, " "); // HAPUS
-              break;
+      if (matchA) {
+          let val = parseFloat(matchA[1].replace(',', '.'));
+          // Jika user bilang "15 ribu", val=15. Kali 1000.
+          // Jika user bilang "15000" (dari STT), val=15000. suffix "000" tidak perlu dikali lagi kalau formatnya 15.000
+          if (!matchA[1].includes('000') && (matchA[2] === 'ribu' || matchA[2] === 'rb' || matchA[2] === 'k')) {
+             val *= 1000;
+          }
+          if (val < 1000 && matchA[1].includes('.')) { 
+              // Case "10.000" dibaca "10" oleh parseFloat jika locale salah, tapi regex menangkap full.
+              // Kita fix manual:
+              val = parseFloat(matchA[1].replace('.', '')) * 1000; 
+          }
+          
+          moneyVal = val;
+          // POTONG DARI KALIMAT
+          processingText = processingText.replace(matchA[0], " "); 
+      } 
+      else {
+          // Pattern B: Angka bugil besar (misal: "ongkos 25000")
+          // Regex: Angka minimal 4 digit (1000+)
+          const moneyPatternB = /\b(\d{4,})\b/;
+          const matchB = processingText.match(moneyPatternB);
+          if (matchB) {
+              moneyVal = parseFloat(matchB[1]);
+              processingText = processingText.replace(matchB[0], " ");
           }
       }
 
-      // Cek Pola: "15 ribu", "15rb", "15.000", "15000"
-      if (moneyFound === 0) {
-          // Regex menangkap: angka (bisa desimal) diikuti opsional "ribu/rb/k"
-          // Contoh match: "15 ribu", "15.5 rb", "20000"
-          const moneyRegex = /(\d+(?:[\.,]\d+)?)\s*(ribu|rb|k|000|rupiah)/i;
-          const match = text.match(moneyRegex);
-          
-          if (match) {
-              const numStr = match[1].replace(',', '.'); // 15,5 -> 15.5
-              let val = parseFloat(numStr);
-              
-              // Logika pengali
-              const suffix = match[2].toLowerCase();
-              if (['ribu', 'rb', 'k'].includes(suffix)) {
-                  val *= 1000;
-              } else if (suffix === '000') {
-                  // user bilang "15 000" -> match[1] bisa jadi 15
-                  // ini tricky, biasanya STT langsung gabung jadi 15000
-              } 
-              
-              // Jika user hanya bilang "15 ribu", val jadi 15000.
-              // Jika user bilang "15000 rupiah", val sudah 15000.
-              if (val < 1000 && (suffix === 'ribu' || suffix === 'rb' || suffix === 'k')) {
-                  // handled above
-              }
-              
-              moneyFound = val;
-              text = text.replace(match[0], " "); // HAPUS
-          } else {
-              // Fallback: Cari angka besar (>1000) yang berdiri sendiri dan ada kata kunci duit
-              const contextRegex = /(ongkos|tarif|harga|dapat)\s+(\d{4,})/;
-              const contextMatch = text.match(contextRegex);
-              if (contextMatch) {
-                  moneyFound = parseFloat(contextMatch[2]);
-                  text = text.replace(contextMatch[0], " "); // HAPUS
-              }
-          }
-      }
+      if (moneyVal > 0) setArgoRaw(formatCurrencyInput(moneyVal.toString()));
 
-      // Apply Money State
-      if (moneyFound > 0) {
-          setArgoRaw(formatCurrencyInput(moneyFound.toString()));
-      }
+      // --- BEDAH 2: EKSTRAKSI JARAK ---
+      // Cari angka + satuan jarak
+      let distVal = 0;
+      const distPattern = /(\d+(?:[\.,]\d+)?)\s*(km|kilo|kilometer|meter|m)\b/i;
+      const matchDist = processingText.match(distPattern);
 
-      // --- B. EKSTRAKSI JARAK (Distance) ---
-      let distFound = 0;
-      
-      // Pola: "3.5 km", "3,5 kilo", "500 meter"
-      const distRegex = /(\d+(?:[\.,]\d+)?)\s*(km|kilo|kilometer|meter|m)\b/i;
-      const distMatch = text.match(distRegex);
-      
-      if (distMatch) {
-          let val = parseFloat(distMatch[1].replace(',', '.'));
-          const unit = distMatch[2].toLowerCase();
+      if (matchDist) {
+          let val = parseFloat(matchDist[1].replace(',', '.'));
+          const unit = matchDist[2].toLowerCase();
+          if (unit.startsWith('m')) val /= 1000; // Konversi Meter ke KM
           
-          if (unit.startsWith('m')) val /= 1000; // Meter to KM
-          
-          distFound = val;
-          text = text.replace(distMatch[0], " "); // HAPUS
+          distVal = val;
+          processingText = processingText.replace(matchDist[0], " ");
       } else {
-          // Pola Konteks: "Jarak 5" (tanpa satuan)
+          // Konteks: "Jarak 5"
           const contextDist = /(jarak|jauhnya)\s+(\d+(?:[\.,]\d+)?)/i;
-          const cm = text.match(contextDist);
-          if (cm) {
-              distFound = parseFloat(cm[2].replace(',', '.'));
-              text = text.replace(cm[0], " "); // HAPUS
+          const matchCtx = processingText.match(contextDist);
+          if (matchCtx) {
+              distVal = parseFloat(matchCtx[2].replace(',', '.'));
+              processingText = processingText.replace(matchCtx[0], " ");
           }
       }
 
-      // Apply Distance State
-      if (distFound > 0) {
-          setTripDist(distFound.toString());
-      }
+      if (distVal > 0) setTripDist(distVal.toString());
 
-      // --- C. EKSTRAKSI APP & SERVICE ---
-      // Logic: Cari keyword, set state, lalu HAPUS dari text
-      const apps: Record<string, AppSource> = { 
-          'maxim': 'Maxim', 'gojek': 'Gojek', 'gofood': 'Gojek', 'gosend': 'Gojek',
-          'grab': 'Grab', 'grabfood': 'Grab', 'shopee': 'Shopee', 'indriver': 'Indriver' 
+      // --- BEDAH 3: APLIKASI & LAYANAN ---
+      // Cari keyword, set state, HAPUS keyword
+      const apps: Record<string, AppSource> = {
+          'gojek': 'Gojek', 'gofood': 'Gojek', 'gosend': 'Gojek',
+          'grab': 'Grab', 'grabfood': 'Grab', 'grabexpress': 'Grab',
+          'maxim': 'Maxim', 'shopee': 'Shopee', 'indriver': 'Indriver'
       };
       
+      let appFound = false;
       for (const [key, val] of Object.entries(apps)) {
-          if (text.includes(key)) {
+          if (processingText.includes(key)) {
               setAppSource(val);
-              text = text.replace(key, " "); // HAPUS
-              break;
+              appFound = true;
+              processingText = processingText.replace(key, " ");
+              // Jangan break, mungkin ada info lain
           }
       }
 
       const services: Record<string, ServiceType> = {
-          'food': 'Food', 'makan': 'Food', 'lapar': 'Food',
-          'shop': 'Shop', 'belanja': 'Shop', 'mart': 'Shop',
+          'food': 'Food', 'makan': 'Food', 'lapar': 'Food', 'restoran': 'Food',
+          'shop': 'Shop', 'belanja': 'Shop', 'mart': 'Shop', 'beli': 'Shop',
           'send': 'Send', 'kirim': 'Send', 'paket': 'Send', 'antar': 'Send',
-          'bike': 'Bike', 'motor': 'Bike', 'penumpang': 'Bike', 'jemput': 'Bike', 'ride': 'Bike'
+          'bike': 'Bike', 'motor': 'Bike', 'penumpang': 'Bike', 'orang': 'Bike', 'jemput': 'Bike'
       };
 
-      let serviceDetected = false;
+      let serviceFound = false;
       for (const [key, val] of Object.entries(services)) {
-          if (text.includes(key)) {
+          if (processingText.includes(key)) {
               setServiceType(val);
-              serviceDetected = true;
-              text = text.replace(key, " "); // HAPUS
-              break;
+              serviceFound = true;
+              processingText = processingText.replace(key, " ");
           }
       }
 
-      // --- D. CLEANUP FILLER WORDS ---
-      // Hapus kata sambung agar sisa text bersih untuk Lokasi
+      // --- BEDAH 4: BERSIH-BERSIH (CLEANUP) ---
+      // Hapus kata sampah sisa agar Lokasi bersih
       const fillers = [
           'dapat', 'orderan', 'dari', 'di', 'ke', 'tujuannya', 'arah', 
-          'seharga', 'tarif', 'ongkir', 'biaya', 'tunai', 'cash', 'gopay', 'ovo',
+          'seharga', 'tarif', 'ongkir', 'biaya', 'harga', 'rupiah', 'rp',
           'jarak', 'jauhnya', 'kilo', 'km', 'meter',
-          'namanya', 'daerah', 'kawasan', 'lokasi'
+          'namanya', 'daerah', 'kawasan', 'lokasi', 'posisi'
       ];
-      fillers.forEach(f => {
-          text = text.replace(new RegExp(`\\b${f}\\b`, 'gi'), " ");
+      fillers.forEach(word => {
+          processingText = processingText.replace(new RegExp(`\\b${word}\\b`, 'gi'), " ");
       });
 
-      // --- E. MEMISAHKAN LOKASI & CATATAN ---
-      let locRaw = "";
-      let noteRaw = "";
+      // --- BEDAH 5: SPLIT LOKASI vs CATATAN ---
+      let finalLoc = "";
+      let finalNote = "";
 
-      const noteSplitters = ['catatan', 'note', 'keterangan', 'pesan'];
-      let splitIdx = -1;
-      
-      // Cari index kata 'catatan' pertama
-      for (const splitter of noteSplitters) {
-          const idx = text.indexOf(splitter);
+      const splitters = ['catatan', 'note', 'keterangan', 'pesan'];
+      let splitIndex = -1;
+
+      for (const s of splitters) {
+          const idx = processingText.indexOf(s);
           if (idx !== -1) {
-              splitIdx = idx;
-              // Hapus kata splitternya dari note
-              text = text.replace(splitter, ""); 
+              splitIndex = idx;
+              processingText = processingText.replace(s, ""); // Hapus kata splitter
               break;
           }
       }
 
-      if (splitIdx !== -1) {
-          // Lokasi adalah teks SEBELUM kata 'catatan'
-          locRaw = text.substring(0, splitIdx).trim();
-          // Note adalah teks SETELAH kata 'catatan'
-          noteRaw = text.substring(splitIdx).trim();
+      if (splitIndex !== -1) {
+          finalLoc = processingText.substring(0, splitIndex).trim();
+          finalNote = processingText.substring(splitIndex).trim();
       } else {
-          // Tidak ada catatan, semua sisa adalah Lokasi
-          locRaw = text.trim();
+          finalLoc = processingText.trim();
       }
 
-      // Final Sanity Check: Bersihkan spasi ganda & karakter non-alphanumeric aneh
-      locRaw = locRaw.replace(/\s+/g, ' ').replace(/[^\w\s\(\)\.\-]/gi, '').trim();
-      noteRaw = noteRaw.replace(/\s+/g, ' ').trim();
+      // Clean special chars
+      finalLoc = finalLoc.replace(/\s+/g, ' ').replace(/[^\w\s\(\)\.\-]/gi, '').trim();
+      finalNote = finalNote.replace(/\s+/g, ' ').trim();
 
-      // Auto-Detect Service jika belum terset (Context Inference)
-      if (!serviceDetected) {
-          if (/mie|nasi|kopi|cafe|resto|warung|soto|bakso/i.test(locRaw)) setServiceType('Food');
-          else if (/mart|super|pasar|mall/i.test(locRaw)) setServiceType('Shop');
+      // AUTO INFERENCE (Jika layanan belum ketemu, tebak dari nama lokasi)
+      if (!serviceFound && finalLoc) {
+          const lowerLoc = finalLoc.toLowerCase();
+          if (/mie|nasi|kopi|cafe|resto|warung|soto|bakso|geprek|seblak/i.test(lowerLoc)) setServiceType('Food');
+          else if (/mart|super|pasar|mall|toko/i.test(lowerLoc)) setServiceType('Shop');
       }
 
-      // --- F. APPLY FINAL STATE ---
-      if (locRaw) setOrigin(locRaw.replace(/(?:^|\s)\S/g, a => a.toUpperCase())); // Title Case
-      if (noteRaw) setNotes(noteRaw);
+      // SET STATE AKHIR
+      if (finalLoc) setOrigin(finalLoc.replace(/(?:^|\s)\S/g, a => a.toUpperCase())); // Title Case
+      if (finalNote) setNotes(finalNote);
 
-      setTranscriptPreview("Berhasil dipecah!");
+      setTranscriptPreview("Berhasil diurai!");
       setTimeout(() => setTranscriptPreview(""), 2000);
       setVoiceStatus("Ketuk Mic untuk Input Suara");
   };
@@ -376,7 +357,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
     
     const argoVal = parseCurrencyInput(argoRaw);
     if (!argoVal || argoVal <= 0) {
-        showAlert("Lupa Argo?", "Isi dulu argonya Ndan. Suara mungkin kurang jelas angkanya.");
+        showAlert("Lupa Argo?", "Isi dulu argonya Ndan.");
         return;
     }
 

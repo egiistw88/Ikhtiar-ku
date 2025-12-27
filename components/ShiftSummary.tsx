@@ -1,7 +1,7 @@
 import React from 'react';
 import { DailyFinancial } from '../types';
 import { clearShiftState } from '../services/storage';
-import { CheckCircle2, PiggyBank, ArrowRight, Wallet } from 'lucide-react';
+import { CheckCircle2, PiggyBank, ArrowRight, Wallet, CreditCard, Banknote } from 'lucide-react';
 
 interface ShiftSummaryProps {
     financials: DailyFinancial | null;
@@ -20,6 +20,8 @@ const ShiftSummary: React.FC<ShiftSummaryProps> = ({ financials, onClose }) => {
     const netCash = financials?.netCash || 0;
     const maintenance = financials?.maintenanceFund || 0;
     const kitchen = financials?.kitchen || 0;
+    const cashIn = financials?.cashIncome || 0;
+    const nonCashIn = financials?.nonCashIncome || 0;
 
     return (
         <div className="fixed inset-0 z-50 bg-[#121212] flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in duration-300">
@@ -39,16 +41,32 @@ const ShiftSummary: React.FC<ShiftSummaryProps> = ({ financials, onClose }) => {
                 <div className="space-y-3 mb-6 flex-1">
                     {/* 1. REALITY SECTION */}
                     <div className="bg-gray-900 rounded-xl p-4 border border-gray-800">
-                        <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Arus Kas Nyata</h3>
+                        <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Rincian Pendapatan</h3>
                         
                         <div className="flex justify-between items-center mb-2">
-                            <span className="text-sm text-gray-300">Total Pendapatan</span>
+                            <span className="text-sm text-gray-300 flex items-center gap-2"><Banknote size={14} className="text-emerald-500"/> Tunai (Cash)</span>
                             <span className="font-mono font-bold text-emerald-400">
+                                {formatRupiah(cashIn)}
+                            </span>
+                        </div>
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm text-gray-300 flex items-center gap-2"><CreditCard size={14} className="text-purple-500"/> Non-Tunai (App)</span>
+                            <span className="font-mono font-bold text-purple-400">
+                                {formatRupiah(nonCashIn)}
+                            </span>
+                        </div>
+                         <div className="flex justify-between items-center mb-3 pt-2 border-t border-gray-800">
+                            <span className="text-xs font-bold text-gray-400">Total Kotor</span>
+                            <span className="font-mono font-bold text-white">
                                 {financials ? formatRupiah(financials.grossIncome) : 'Rp0'}
                             </span>
                         </div>
+                    </div>
+
+                    <div className="bg-gray-900 rounded-xl p-4 border border-gray-800">
+                         <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Arus Kas Fisik (Dompet)</h3>
                         <div className="flex justify-between items-center mb-3">
-                            <span className="text-sm text-gray-300">Biaya Operasional (Bensin/Makan)</span>
+                            <span className="text-sm text-gray-300">Pengeluaran Tunai</span>
                             <span className="font-mono font-bold text-red-400">
                                 -{financials ? formatRupiah(financials.operationalCost) : 'Rp0'}
                             </span>
@@ -91,6 +109,11 @@ const ShiftSummary: React.FC<ShiftSummaryProps> = ({ financials, onClose }) => {
                         <p className="text-3xl font-black text-white tracking-tighter shadow-black drop-shadow-md">
                             {formatRupiah(kitchen)}
                         </p>
+                        {nonCashIn > 0 && kitchen > netCash && (
+                             <p className="text-[10px] text-purple-400 mt-1">
+                                *Sebagian dana ada di Saldo Aplikasi ({formatRupiah(kitchen - netCash)})
+                            </p>
+                        )}
                     </div>
                 </div>
 

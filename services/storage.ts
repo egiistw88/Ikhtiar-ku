@@ -8,6 +8,92 @@ const FINANCE_KEY = 'ikhtiar_ku_finance_v1';
 const SETTINGS_KEY = 'ikhtiar_ku_settings_v1';
 const GARAGE_KEY = 'ikhtiar_ku_garage_v1';
 
+// ... (safeSetItem & runDataHousekeeping kept same as before) ...
+// Wrapper untuk menangani QuotaExceededError jika HP kentang / memori penuh
+const safeSetItem = (key: string, value: string) => {
+    try {
+        localStorage.setItem(key, value);
+    } catch (e: any) {
+        if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+            console.warn("Storage Penuh! Menjalankan Emergency Cleanup...");
+            runDataHousekeeping(true); 
+            try {
+                localStorage.setItem(key, value);
+            } catch (retryError) {
+                console.error("Critical Storage Failure: Data tidak tersimpan.", retryError);
+            }
+        } else {
+            console.error("Storage Error:", e);
+        }
+    }
+};
+
+export const runDataHousekeeping = (forceAggressive: boolean = false): { cleanedHotspots: number, cleanedTxs: number, status: string } => {
+    try {
+        const now = new Date();
+        const txRetentionDays = forceAggressive ? 14 : 30;
+        const hotspotRetentionDays = forceAggressive ? 30 : 60;
+
+        const limitDateTx = new Date(now.setDate(now.getDate() - txRetentionDays)).getTime();
+        const limitDateSpot = new Date(now.setDate(now.getDate() - hotspotRetentionDays)).getTime();
+        
+        const futureLimit = new Date();
+        futureLimit.setDate(futureLimit.getDate() + 2); 
+        const futureLimitTime = futureLimit.getTime();
+
+        const currentTxs = getTransactions();
+        const validTxs = currentTxs.filter(tx => {
+            if (!tx.timestamp) return false; 
+            if (tx.timestamp > futureLimitTime) return false; 
+            if (tx.timestamp < limitDateTx) return false; 
+            return true;
+        });
+        const removedTxsCount = currentTxs.length - validTxs.length;
+
+        if (removedTxsCount > 0) {
+            localStorage.setItem(FINANCE_KEY, JSON.stringify(validTxs));
+        }
+
+        const currentHotspots = getHotspots();
+        const validHotspots = currentHotspots.filter(h => {
+            if (!h.isUserEntry) return true; 
+
+            const entryDate = new Date(h.date).getTime();
+            if (isNaN(entryDate)) return false;
+            if (entryDate > futureLimitTime) return false;
+            if (entryDate < limitDateSpot) return false;
+
+            const lastValidation = h.validations?.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+            if (lastValidation) {
+                const lastValidDate = new Date(lastValidation.date).getTime();
+                const validationLimit = forceAggressive ? limitDateTx : limitDateTx; 
+                if (lastValidDate > validationLimit) return true;
+            }
+
+            return false;
+        });
+
+        const removedHotspotsCount = currentHotspots.length - validHotspots.length;
+        if (removedHotspotsCount > 0) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(validHotspots));
+        }
+
+        return { 
+            cleanedHotspots: removedHotspotsCount, 
+            cleanedTxs: removedTxsCount,
+            status: 'SUCCESS'
+        };
+
+    } catch (e) {
+        return { cleanedHotspots: 0, cleanedTxs: 0, status: 'ERROR' };
+    }
+};
+
+export const performFactoryReset = () => {
+    localStorage.clear();
+    window.location.reload();
+}
+
 export const getHotspots = (): Hotspot[] => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -17,8 +103,7 @@ export const getHotspots = (): Hotspot[] => {
         return parsed;
       }
     }
-    // Initialize
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_DATA));
+    safeSetItem(STORAGE_KEY, JSON.stringify(INITIAL_DATA));
     return INITIAL_DATA;
   } catch (error) {
     console.error("Storage error", error);
@@ -29,8 +114,8 @@ export const getHotspots = (): Hotspot[] => {
 export const addHotspot = (hotspot: Hotspot): void => {
   try {
     const current = getHotspots();
-    const updated = [hotspot, ...current]; // Newest first
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    const updated = [hotspot, ...current]; 
+    safeSetItem(STORAGE_KEY, JSON.stringify(updated));
   } catch (error) {
     console.error("Failed to save hotspot", error);
   }
@@ -40,7 +125,7 @@ export const deleteHotspot = (id: string): void => {
     try {
         const current = getHotspots();
         const updated = current.filter(h => h.id !== id);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        safeSetItem(STORAGE_KEY, JSON.stringify(updated));
     } catch (error) {
         console.error("Failed to delete", error);
     }
@@ -53,7 +138,6 @@ export const toggleValidation = (id: string, isAccurate: boolean): void => {
             if (h.id === id) {
                 const today = getLocalDateString();
                 const validations = h.validations || [];
-                // Remove existing validation for today if any
                 const filtered = validations.filter(v => v.date !== today);
                 return {
                     ...h,
@@ -62,15 +146,12 @@ export const toggleValidation = (id: string, isAccurate: boolean): void => {
             }
             return h;
         });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        safeSetItem(STORAGE_KEY, JSON.stringify(updated));
     } catch (error) {
         console.error("Failed to update validation", error);
     }
 }
 
-// ==========================================
-// NEW: SHIFT STATE (MODAL AWAL)
-// ==========================================
 export const getShiftState = (): ShiftState | null => {
     const stored = localStorage.getItem(SHIFT_STATE_KEY);
     if (!stored) return null;
@@ -79,7 +160,6 @@ export const getShiftState = (): ShiftState | null => {
         const parsed: ShiftState = JSON.parse(stored);
         const today = getLocalDateString();
 
-        // If stored data is from previous day, reset it
         if (parsed.date !== today) {
             localStorage.removeItem(SHIFT_STATE_KEY);
             return null;
@@ -87,28 +167,23 @@ export const getShiftState = (): ShiftState | null => {
         
         return parsed;
     } catch (e) {
-        // Corrupt data fallback
         localStorage.removeItem(SHIFT_STATE_KEY);
         return null;
     }
 }
 
 export const saveShiftState = (state: ShiftState): void => {
-    localStorage.setItem(SHIFT_STATE_KEY, JSON.stringify(state));
+    safeSetItem(SHIFT_STATE_KEY, JSON.stringify(state));
 }
 
 export const clearShiftState = (): void => {
     localStorage.removeItem(SHIFT_STATE_KEY);
 }
 
-// ==========================================
-// PENGATURAN (SETTINGS)
-// ==========================================
 export const getUserSettings = (): UserSettings => {
     const stored = localStorage.getItem(SETTINGS_KEY);
     if (stored) return JSON.parse(stored);
     
-    // Default Settings
     return {
         targetRevenue: 150000,
         preferences: {
@@ -122,12 +197,8 @@ export const getUserSettings = (): UserSettings => {
 }
 
 export const saveUserSettings = (settings: UserSettings): void => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    safeSetItem(SETTINGS_KEY, JSON.stringify(settings));
 }
-
-// ==========================================
-// FITUR DOMPET BERKAH (Financial Manager)
-// ==========================================
 
 export const getTransactions = (): Transaction[] => {
     try {
@@ -141,9 +212,8 @@ export const getTransactions = (): Transaction[] => {
 export const addTransaction = (tx: Transaction): void => {
     const current = getTransactions();
     const updated = [tx, ...current];
-    localStorage.setItem(FINANCE_KEY, JSON.stringify(updated));
+    safeSetItem(FINANCE_KEY, JSON.stringify(updated));
 
-    // Integration: Update Odometer automatically if distance is provided
     if (tx.distanceKm && tx.distanceKm > 0) {
         const garage = getGarageData();
         garage.currentOdometer = (garage.currentOdometer || 0) + tx.distanceKm;
@@ -154,68 +224,68 @@ export const addTransaction = (tx: Transaction): void => {
 export const updateTransaction = (updatedTx: Transaction): void => {
     const current = getTransactions();
     const updated = current.map(tx => tx.id === updatedTx.id ? updatedTx : tx);
-    localStorage.setItem(FINANCE_KEY, JSON.stringify(updated));
+    safeSetItem(FINANCE_KEY, JSON.stringify(updated));
 }
 
 export const deleteTransaction = (id: string): void => {
     const current = getTransactions();
-    // Use String comparison to be safe
     const updated = current.filter(tx => String(tx.id) !== String(id));
-    localStorage.setItem(FINANCE_KEY, JSON.stringify(updated));
+    safeSetItem(FINANCE_KEY, JSON.stringify(updated));
 }
 
 export const getTodayFinancials = (): DailyFinancial => {
     const todayStr = getLocalDateString();
     const txs = getTransactions().filter(t => t.date === todayStr);
     const settings = getUserSettings();
-    // Ambil Modal Awal jika ada
     const shift = getShiftState();
     const startCash = shift ? shift.startCash : 0;
     
     let grossIncome = 0;
-    let realOpsCost = 0;
+    let cashIncome = 0;
+    let nonCashIncome = 0;
+    let realOpsCost = 0; // Only Cash Expenses affect Net Cash
 
     txs.forEach(t => {
         if (t.type === 'income') {
             grossIncome += t.amount;
+            // Default to Cash if undefined (backward compatibility)
+            if (t.isCash !== false) {
+                cashIncome += t.amount;
+            } else {
+                nonCashIncome += t.amount;
+            }
         } else if (t.type === 'expense') {
-            realOpsCost += t.amount;
+            // Assume expenses marked as Cash reduce Wallet
+            // If isCash is false (e.g. Pulsa via Bank), it doesn't reduce Wallet Cash
+            if (t.isCash !== false) {
+                realOpsCost += t.amount;
+            }
         }
     });
 
-    // LOGIKA REAL CASH FLOW:
-    // Uang di Tangan = Modal Awal Tunai + Pendapatan Tunai - Pengeluaran Tunai
-    // (Asumsi sederhana: semua income/expense mempengaruhi cash flow tunai/dompet)
-    const netCash = startCash + grossIncome - realOpsCost;
-
-    // KECERDASAN FINANSIAL (Smart Allocations):
-    // 1. Maintenance Fund (Tabungan Wajib): 10% dari Gross Income.
-    //    Ini adalah "Invisible Expense". Uang ada, tapi jangan dianggap milik sendiri.
-    const maintenanceFund = Math.round(grossIncome * 0.10);
-
-    // 2. Kitchen Fund (Dana Dapur):
-    //    Uang bersih yang boleh dibawa pulang.
-    //    Rumus: Net Cash (Uang Fisik) - Tabungan Wajib - Modal Awal (biar modal muter besok).
-    //    Jika hasilnya minus, berarti belum untung (masih makan modal).
-    let kitchen = netCash - maintenanceFund - startCash;
+    // Uang di Tangan = Modal Awal + Pendapatan Tunai - Pengeluaran Tunai
+    const netCash = startCash + cashIncome - realOpsCost;
     
-    // Minimal 0 agar tidak minus di UI jika baru mulai
-    // Tapi secara logika akuntansi, bisa minus kalau pengeluaran > pendapatan
+    // Dana Maintenance tetap dihitung dari Gross (Semua pendapatan)
+    const maintenanceFund = Math.round(grossIncome * 0.10);
+    
+    // Uang Dapur = Sisa Uang di Tangan - Dana Maintenance
+    // Kalau non-tunai banyak, Uang Dapur mungkin "virtual" (ada di saldo), tapi ini hitungan aman cash.
+    // Kita set kitchen berdasarkan NetCash real agar driver tidak boncos ambil cash.
+    let kitchen = netCash - maintenanceFund - startCash;
     
     return {
         date: todayStr,
         grossIncome,
+        cashIncome,
+        nonCashIncome,
         operationalCost: realOpsCost,
-        netCash, // Total uang fisik di dompet saat ini
+        netCash, 
         maintenanceFund,
-        kitchen, // Sisa profit bersih
+        kitchen, 
         target: settings.targetRevenue
     };
 }
-
-// ==========================================
-// FITUR PERISAI DRIVER (Garage & SOS)
-// ==========================================
 
 export const getGarageData = (): GarageData => {
     try {
@@ -225,7 +295,7 @@ export const getGarageData = (): GarageData => {
             emergencyContact: '',
             currentOdometer: 0,
             lastOilChangeKm: 0,
-            serviceInterval: 2000, // Default 2000km
+            serviceInterval: 2000, 
             lastTireChangeDate: '',
             stnkExpiryDate: '',
             simExpiryDate: ''
@@ -244,12 +314,9 @@ export const getGarageData = (): GarageData => {
 }
 
 export const saveGarageData = (data: GarageData): void => {
-    localStorage.setItem(GARAGE_KEY, JSON.stringify(data));
+    safeSetItem(GARAGE_KEY, JSON.stringify(data));
 }
 
-// ==========================================
-// BACKUP & RESTORE UTILS
-// ==========================================
 export const createBackupString = (): string => {
     const backup = {
         hotspots: getHotspots(),
@@ -266,10 +333,10 @@ export const createBackupString = (): string => {
 export const restoreFromBackup = (jsonString: string): boolean => {
     try {
         const data = JSON.parse(jsonString);
-        if (data.hotspots) localStorage.setItem(STORAGE_KEY, JSON.stringify(data.hotspots));
-        if (data.transactions) localStorage.setItem(FINANCE_KEY, JSON.stringify(data.transactions));
-        if (data.garage) localStorage.setItem(GARAGE_KEY, JSON.stringify(data.garage));
-        if (data.settings) localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.settings));
+        if (data.hotspots) safeSetItem(STORAGE_KEY, JSON.stringify(data.hotspots));
+        if (data.transactions) safeSetItem(FINANCE_KEY, JSON.stringify(data.transactions));
+        if (data.garage) safeSetItem(GARAGE_KEY, JSON.stringify(data.garage));
+        if (data.settings) safeSetItem(SETTINGS_KEY, JSON.stringify(data.settings));
         return true;
     } catch (e) {
         console.error("Restore failed", e);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ViewState, TimeState, Hotspot, DailyFinancial, ShiftState } from './types';
-import { getCurrentTimeInfo } from './utils';
-import { getHotspots, getShiftState } from './services/storage';
+import { getCurrentTimeInfo, getLocalDateString } from './utils';
+import { getHotspots, getShiftState, runDataHousekeeping, getTodayFinancials, clearShiftState } from './services/storage';
 import RadarView from './components/RadarView';
 import MapView from './components/MapView';
 import JournalEntry from './components/JournalEntry';
@@ -27,38 +27,81 @@ const App: React.FC = () => {
   // Summary Data State
   const [summaryData, setSummaryData] = useState<{ finance: DailyFinancial | null } | null>(null);
 
-  // Initial Load
-  useEffect(() => {
-    const data = getHotspots();
-    setHotspots(data);
+  const refreshAppData = () => {
+      // 1. Cek Hari Baru (Auto-Reset Logic)
+      const storedShift = getShiftState();
+      const today = getLocalDateString();
+      
+      if (storedShift && storedShift.date !== today) {
+          console.log("New Day Detected: Resetting Shift State...");
+          clearShiftState();
+          setShiftState(null);
+          setView('setup'); // Paksa masuk setup ulang
+          showToast("Hari Baru! Silakan cek modal kembali.");
+      } else {
+          setShiftState(storedShift);
+      }
 
+      setHotspots(getHotspots());
+      setCurrentTime(getCurrentTimeInfo());
+  };
+
+  // Initial Load & Lifecycle
+  useEffect(() => {
+    // 1. Run Maintenance (Silent)
+    const stats = runDataHousekeeping();
+    if (stats.cleanedTxs > 0 || stats.cleanedHotspots > 0) {
+        console.log(`Auto-Maintenance: Cleaned ${stats.cleanedTxs} txs & ${stats.cleanedHotspots} old hotspots.`);
+    }
+
+    // 2. Load Data & Cek Hari
+    refreshAppData();
+    
+    // Logic penentuan view awal
     const currentShift = getShiftState();
-    if (currentShift) {
-        setShiftState(currentShift);
+    const today = getLocalDateString();
+    
+    // Jika ada shift DAN tanggalnya hari ini, masuk radar. Jika tidak, setup.
+    if (currentShift && currentShift.date === today) {
         setView('radar');
     } else {
         setView('setup');
     }
 
+    // 3. Multitasking Sync (Auto-Wakeup)
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+            console.log("App Resumed: Refreshing Data...");
+            refreshAppData();
+        }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // 4. Timer Jam
     const timer = setInterval(() => {
         setCurrentTime(getCurrentTimeInfo());
     }, 10000); 
 
-    return () => clearInterval(timer);
+    return () => {
+        clearInterval(timer);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   const handleSetupComplete = () => {
-      setShiftState(getShiftState());
+      refreshAppData(); // Pastikan state terupdate setelah setup
       setView('radar');
   };
 
   const handleRefreshData = () => {
-      setHotspots(getHotspots());
+      refreshAppData();
       setView('radar'); 
   };
 
   const handleOpenSummary = (finance: DailyFinancial | null) => {
-      setSummaryData({ finance });
+      const freshFinance = getTodayFinancials();
+      setSummaryData({ finance: freshFinance });
       setView('summary');
   };
 

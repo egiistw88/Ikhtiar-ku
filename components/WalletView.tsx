@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Transaction, DailyFinancial } from '../types';
 import { getTransactions, addTransaction, updateTransaction, deleteTransaction, getTodayFinancials } from '../services/storage';
-import { TrendingUp, TrendingDown, X, Plus, Trash2, Save, AlertTriangle, PieChart, Wrench, Home, Smartphone, Coffee, Zap, Car, ArrowUpRight, ArrowDownLeft, Receipt, Coins, Wallet } from 'lucide-react';
+import { TrendingUp, TrendingDown, X, Plus, Trash2, Save, AlertTriangle, PieChart, Wrench, Home, Smartphone, Coffee, Zap, Car, ArrowUpRight, ArrowDownLeft, Receipt, Coins, Wallet, CreditCard, Banknote, Calendar, Clock } from 'lucide-react';
 import { formatCurrencyInput, parseCurrencyInput, vibrate } from '../utils';
 import FinancialAdvisor from './FinancialAdvisor';
 
@@ -44,6 +44,11 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
     const [type, setType] = useState<'income' | 'expense'>('income');
     const [category, setCategory] = useState<string>('Trip');
     const [note, setNote] = useState('');
+    const [isCash, setIsCash] = useState<boolean>(true);
+    
+    // NEW: Date & Time Editing
+    const [customDate, setCustomDate] = useState<string>('');
+    const [customTime, setCustomTime] = useState<string>('');
 
     useEffect(() => { refreshData(); }, []);
 
@@ -68,7 +73,8 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
             amount: amount,
             type: 'expense',
             category: cat,
-            note: text
+            note: text,
+            isCash: true // Default quick actions are cash (parkir, ngopi)
         };
         addTransaction(newTx);
         
@@ -84,18 +90,31 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
     // --- MODAL LOGIC ---
     const openModal = (tx?: Transaction) => {
         vibrate(10);
+        const now = new Date();
+        const currentDate = now.toISOString().split('T')[0];
+        const currentTime = now.toTimeString().slice(0, 5);
+
         if (tx) {
             setEditingTxId(tx.id);
             setType(tx.type);
             setCategory(tx.category);
             setAmountRaw(formatCurrencyInput(tx.amount.toString()));
             setNote(tx.note || '');
+            setIsCash(tx.isCash !== false); // Default true
+            
+            // Set Date/Time from tx timestamp
+            const d = new Date(tx.timestamp);
+            setCustomDate(tx.date);
+            setCustomTime(d.toTimeString().slice(0, 5));
         } else {
             setEditingTxId(null);
             setType('income');
             setCategory('Trip');
             setAmountRaw('');
             setNote('');
+            setIsCash(true);
+            setCustomDate(currentDate);
+            setCustomTime(currentTime);
         }
         setIsModalOpen(true);
     };
@@ -116,14 +135,20 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
         const val = parseCurrencyInput(amountRaw);
         if (!val) return;
 
+        // Construct Timestamp from Custom Date & Time
+        const [hours, minutes] = customTime.split(':').map(Number);
+        const timestampDate = new Date(customDate);
+        timestampDate.setHours(hours, minutes);
+        const timestamp = timestampDate.getTime();
+
         const base = {
-            amount: val, type, category: category as any, note,
-            date: new Date().toISOString().split('T')[0],
-            timestamp: Date.now() // Update timestamp to bring to top on edit? Maybe keep original on edit.
+            amount: val, type, category: category as any, note, isCash,
+            date: customDate, // Use edited date
+            timestamp: timestamp // Use edited timestamp
         };
 
         if (editingTxId) {
-            updateTransaction({ ...base, id: editingTxId, timestamp: transactions.find(t=>t.id===editingTxId)?.timestamp || Date.now() } as Transaction);
+            updateTransaction({ ...base, id: editingTxId } as Transaction);
             onToast("Transaksi Diperbarui");
             refreshData();
         } else {
@@ -134,7 +159,11 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
             const newStats = getTodayFinancials();
             setSummary(newStats);
             setTransactions(prev => [newTx, ...prev]);
-            setAdvisorTrigger({ tx: newTx, stats: newStats });
+            
+            // Only trigger advisor if entry is for Today
+            if (customDate === new Date().toISOString().split('T')[0]) {
+                setAdvisorTrigger({ tx: newTx, stats: newStats });
+            }
         }
         setIsModalOpen(false);
     };
@@ -219,12 +248,10 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                 </div>
             </div>
 
-            {/* 2. QUICK ACTIONS (Horizontal Scroll) */}
+            {/* 2. QUICK ACTIONS */}
             <div>
                 <h3 className="font-bold text-white px-1 text-[10px] uppercase tracking-wide opacity-70 mb-2">Jalan Pintas (Quick Actions)</h3>
                 <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
-                    
-                    {/* Parkir 2rb */}
                     <button 
                         onClick={() => handleQuickAdd(2000, 'Parking', 'Parkir')}
                         className="flex-shrink-0 w-24 p-3 bg-[#1e1e1e] border border-gray-700 rounded-2xl flex flex-col items-center justify-center gap-2 hover:bg-gray-800 active:scale-95 transition-all"
@@ -232,8 +259,6 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                         <div className="bg-gray-700 p-1.5 rounded-full"><ArrowDownLeft size={14} className="text-gray-300"/></div>
                         <span className="text-[10px] font-bold text-gray-300">Parkir 2rb</span>
                     </button>
-
-                     {/* Ngopi 5rb */}
                      <button 
                         onClick={() => handleQuickAdd(5000, 'Food', 'Ngopi/Es')}
                         className="flex-shrink-0 w-24 p-3 bg-[#1e1e1e] border border-gray-700 rounded-2xl flex flex-col items-center justify-center gap-2 hover:bg-gray-800 active:scale-95 transition-all"
@@ -241,8 +266,6 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                         <div className="bg-orange-900/30 p-1.5 rounded-full"><Coffee size={14} className="text-orange-400"/></div>
                         <span className="text-[10px] font-bold text-gray-300">Ngopi 5rb</span>
                     </button>
-
-                    {/* Catat Manual */}
                     <button 
                         onClick={() => openModal()}
                         className="flex-shrink-0 w-24 p-3 bg-app-primary border border-yellow-500 rounded-2xl flex flex-col items-center justify-center gap-2 hover:bg-yellow-400 active:scale-95 transition-all shadow-lg shadow-yellow-900/20"
@@ -278,7 +301,10 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                                             {React.cloneElement(conf.icon as React.ReactElement, { size: 18 })}
                                         </div>
                                         <div>
-                                            <p className="font-bold text-gray-200 text-xs">{conf.label}</p>
+                                            <p className="font-bold text-gray-200 text-xs flex items-center gap-2">
+                                                {conf.label}
+                                                {tx.isCash === false && <span className="text-[9px] bg-purple-900/50 text-purple-300 px-1.5 rounded border border-purple-800/50">NON-TUNAI</span>}
+                                            </p>
                                             <p className="text-[10px] text-gray-500 truncate max-w-[150px]">{tx.note || new Date(tx.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                                         </div>
                                     </div>
@@ -315,6 +341,28 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                                     Pengeluaran
                                 </button>
                             </div>
+                            
+                            {/* DATE & TIME (Backdate feature) */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1"><Calendar size={12}/> Tanggal</label>
+                                    <input 
+                                        type="date"
+                                        value={customDate}
+                                        onChange={e => setCustomDate(e.target.value)}
+                                        className="w-full bg-[#111] border border-gray-700 rounded-xl p-3 text-white text-xs font-mono text-center focus:border-gray-500"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1"><Clock size={12}/> Jam</label>
+                                    <input 
+                                        type="time"
+                                        value={customTime}
+                                        onChange={e => setCustomTime(e.target.value)}
+                                        className="w-full bg-[#111] border border-gray-700 rounded-xl p-3 text-white text-xs font-mono text-center focus:border-gray-500"
+                                    />
+                                </div>
+                            </div>
 
                             {/* AMOUNT INPUT */}
                             <div className="space-y-2">
@@ -344,6 +392,24 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                                     <button type="button" onClick={() => {setAmountRaw(''); vibrate(10);}} className="flex-shrink-0 px-3 py-1.5 bg-gray-800 text-red-400 rounded-lg text-xs font-bold border border-gray-700">RESET</button>
                                 </div>
                             </div>
+                            
+                            {/* PAYMENT METHOD TOGGLE */}
+                             <div className="flex gap-2">
+                                 <button 
+                                    type="button" 
+                                    onClick={() => { setIsCash(true); vibrate(10); }}
+                                    className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 border font-bold text-xs transition-all ${isCash ? 'bg-emerald-900/40 border-emerald-500 text-emerald-400' : 'bg-[#1e1e1e] border-gray-700 text-gray-500'}`}
+                                 >
+                                     <Banknote size={16} /> TUNAI
+                                 </button>
+                                 <button 
+                                    type="button" 
+                                    onClick={() => { setIsCash(false); vibrate(10); }}
+                                    className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 border font-bold text-xs transition-all ${!isCash ? 'bg-purple-900/40 border-purple-500 text-purple-400' : 'bg-[#1e1e1e] border-gray-700 text-gray-500'}`}
+                                 >
+                                     <CreditCard size={16} /> NON-TUNAI
+                                 </button>
+                             </div>
 
                             {/* CATEGORY GRID */}
                             <div className="space-y-2">

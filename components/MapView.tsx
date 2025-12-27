@@ -2,8 +2,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import { Hotspot, TimeState } from '../types';
 import { CATEGORY_COLORS } from '../constants';
-import { Navigation, Zap, Map as MapIcon, Target, X, Compass, Lightbulb, TrendingUp } from 'lucide-react';
-import { vibrate } from '../utils';
+import { Navigation, Zap, Map as MapIcon, Target, X, Compass, Lightbulb, TrendingUp, Filter, Calendar, Layers } from 'lucide-react';
+import { vibrate, playSound } from '../utils';
 
 // Leaflet CSS is imported in index.html
 
@@ -79,7 +79,7 @@ const generateTacticalAdvice = (hotspots: Hotspot[], time: TimeState) => {
             title: 'Strategi Makan Siang',
             highlight: 'Pusat Kantor & Kuliner',
             message: 'Orang kantor pesan makan atau keluar makan.',
-            action: 'Geser ke area perkantoran atau pusat jajanan (Gacoan/McD/Foodcourt). Fokus Food/Bike.',
+            action: 'Geser ke area perkantoran atau pusat jajanan (Gacoan/McD/Foodcourt). Fokus Bike/Food.',
             icon: <Target className="text-red-400" size={32} />
         };
     }
@@ -119,8 +119,29 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime }) => {
   const [userLocation, setUserLocation] = useState<[number, number]>([-6.9175, 107.6191]); // Default Bandung center
   const [showIntel, setShowIntel] = useState(false);
   
+  // MAP FILTER STATE
+  const [filterMode, setFilterMode] = useState<'RELEVANT' | 'ALL'>('RELEVANT');
+
   // Generate Advice Memoized
   const intel = useMemo(() => generateTacticalAdvice(hotspots, currentTime), [hotspots, currentTime]);
+
+  // Filtered Hotspots based on Mode
+  const displayedHotspots = useMemo(() => {
+      if (filterMode === 'ALL') return hotspots;
+      
+      // RELEVANT MODE: Only show hotspots for CURRENT DAY and +- 2 Hours window
+      // This prevents map clutter and keeps data actionable
+      return hotspots.filter(h => {
+          // If it's today's day
+          if (h.day !== currentTime.dayName) return false;
+          
+          const [hHour] = h.predicted_hour.split(':').map(Number);
+          const currentHour = currentTime.fullDate.getHours();
+          
+          // Show spots valid from 2 hours ago until 3 hours ahead (broad window)
+          return Math.abs(hHour - currentHour) <= 4;
+      });
+  }, [hotspots, filterMode, currentTime]);
 
   useEffect(() => {
     // Get Location
@@ -137,6 +158,7 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime }) => {
     const timer = setTimeout(() => {
         setShowIntel(true);
         vibrate(50);
+        playSound('success');
     }, 500); // Delay dikit biar smooth
 
     return () => clearTimeout(timer);
@@ -144,12 +166,19 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime }) => {
 
   const handleRecenter = () => {
       vibrate(10);
+      playSound('click');
       if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition((pos) => {
               setUserLocation([pos.coords.latitude, pos.coords.longitude]);
           });
       }
   };
+
+  const toggleFilter = () => {
+      vibrate(10);
+      playSound('click');
+      setFilterMode(prev => prev === 'RELEVANT' ? 'ALL' : 'RELEVANT');
+  }
 
   return (
     <div className="h-full w-full relative bg-gray-900 overflow-hidden">
@@ -180,7 +209,7 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime }) => {
         </CircleMarker>
 
         {/* Hotspots Markers */}
-        {hotspots.map((spot) => (
+        {displayedHotspots.map((spot) => (
             <CircleMarker
                 key={spot.id}
                 center={[spot.lat, spot.lng]}
@@ -256,7 +285,7 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime }) => {
                       </div>
 
                       <button 
-                          onClick={() => { setShowIntel(false); vibrate(20); }}
+                          onClick={() => { setShowIntel(false); vibrate(20); playSound('click'); }}
                           className={`w-full py-3.5 rounded-xl font-black text-black text-sm uppercase tracking-wide shadow-lg active:scale-[0.98] transition-transform flex items-center justify-center gap-2 ${intel.type === 'DATA_DRIVEN' ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-app-primary hover:bg-yellow-400'}`}
                       >
                           <Navigation size={18} fill="black" /> Siap, Laksanakan!
@@ -271,7 +300,7 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime }) => {
          {/* Re-open Intel Button */}
          {!showIntel && (
              <button 
-                onClick={() => { setShowIntel(true); vibrate(10); }}
+                onClick={() => { setShowIntel(true); vibrate(10); playSound('click'); }}
                 className="w-10 h-10 bg-app-primary rounded-full flex items-center justify-center shadow-lg border-2 border-yellow-300 text-black active:scale-90 transition-transform animate-in zoom-in"
                 title="Minta Saran Strategi"
              >
@@ -279,6 +308,15 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime }) => {
              </button>
          )}
          
+         {/* FILTER TOGGLE BUTTON (NEW) */}
+         <button 
+            onClick={toggleFilter}
+            className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg border active:scale-90 transition-all ${filterMode === 'RELEVANT' ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
+            title="Filter Peta"
+         >
+            {filterMode === 'RELEVANT' ? <Calendar size={18} /> : <Layers size={18} />}
+         </button>
+
          {/* Recenter GPS */}
          <button 
             onClick={handleRecenter}
@@ -288,12 +326,15 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime }) => {
          </button>
       </div>
 
-      {/* Legend Overlay (Simplified) */}
+      {/* Legend & Filter Info */}
       <div className="absolute bottom-6 left-4 z-[400] bg-black/80 backdrop-blur border border-gray-700 p-2 rounded-lg shadow-xl">
-         <div className="flex gap-3 text-[10px] font-bold text-gray-300">
+         <div className="flex gap-3 text-[10px] font-bold text-gray-300 mb-1">
              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[#FF5252]"></div>Food</div>
              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[#18FFFF]"></div>Bike</div>
              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[#69F0AE]"></div>Send</div>
+         </div>
+         <div className="text-[9px] text-gray-500 font-mono border-t border-gray-700 pt-1 mt-1">
+             Mode: {filterMode === 'RELEVANT' ? 'Hanya Hari Ini (Fokus)' : 'Semua Data History'}
          </div>
       </div>
 

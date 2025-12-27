@@ -46,6 +46,51 @@ export const vibrate = (pattern: number | number[] = 10) => {
     }
 };
 
+// NEW: Audio Feedback Helper (Synthesized Beeps)
+export const playSound = (type: 'success' | 'error' | 'click') => {
+    try {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContext) return;
+        
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        if (type === 'success') {
+            // High pitch rising (Coin sound)
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.1, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.15);
+        } else if (type === 'error') {
+            // Low pitch buzz
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, ctx.currentTime);
+            osc.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.2);
+            gain.gain.setValueAtTime(0.1, ctx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.25);
+        } else {
+            // Click
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(400, ctx.currentTime);
+            gain.gain.setValueAtTime(0.05, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.05);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.05);
+        }
+    } catch (e) {
+        // Ignore audio errors (silent mode fallback)
+    }
+};
+
 // NEW: Currency Input Formatter (returns string with dots)
 export const formatCurrencyInput = (value: string): string => {
     const numberString = value.replace(/[^,\d]/g, '').toString();

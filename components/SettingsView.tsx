@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings } from '../types';
-import { getUserSettings, saveUserSettings, clearShiftState, createBackupString, restoreFromBackup } from '../services/storage';
+import { getUserSettings, saveUserSettings, clearShiftState, createBackupString, restoreFromBackup, performFactoryReset, runDataHousekeeping } from '../services/storage';
 import { saveUserApiKey, getUserApiKey } from '../services/ai';
-import { Settings, Save, Coffee, Bike, Package, ShoppingBag, Target, ArrowLeft, RefreshCw, AlertTriangle, Edit3, Download, Upload, CheckCircle, Key } from 'lucide-react';
+import { Settings, Save, Coffee, Bike, Package, ShoppingBag, Target, ArrowLeft, RefreshCw, AlertTriangle, Edit3, Download, Upload, CheckCircle, Key, Trash2, Database, ShieldCheck } from 'lucide-react';
 import CustomDialog from './CustomDialog';
 
 interface SettingsViewProps {
@@ -57,6 +57,26 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
         clearShiftState();
         window.location.reload();
     };
+    
+    const confirmFactoryReset = () => {
+        setDialogConfig({
+            isOpen: true,
+            type: 'confirm',
+            title: 'HAPUS SEMUA DATA?',
+            msg: 'PERINGATAN: Semua riwayat order, dompet, dan setelan akan dihapus permanen. Aplikasi akan kembali seperti baru diinstall. Lanjutkan?',
+            action: performFactoryReset
+        });
+    }
+
+    const handleManualHousekeeping = () => {
+        const result = runDataHousekeeping();
+        setDialogConfig({
+            isOpen: true,
+            type: 'info',
+            title: 'Database Optimizer',
+            msg: `Hasil Scan & Pembersihan:\n- ${result.cleanedTxs} transaksi lawas/error dihapus.\n- ${result.cleanedHotspots} titik radar non-aktif dihapus.\n\nDatabase kini lebih ringan dan cepat!`,
+        });
+    }
 
     const togglePref = (key: keyof UserSettings['preferences']) => {
         setSettings(prev => ({
@@ -116,7 +136,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
                     if (dialogConfig.action) dialogConfig.action();
                 }}
                 onCancel={() => setDialogConfig(prev => ({ ...prev, isOpen: false }))}
-                confirmText={dialogConfig.type === 'confirm' ? 'Ya, Reset' : 'Oke'}
+                confirmText={dialogConfig.type === 'confirm' ? 'Ya, Lanjutkan' : 'Oke'}
             />
 
             <div className="flex items-center gap-3 mb-6">
@@ -226,11 +246,19 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
             {/* ERROR CORRECTION FEATURE */}
             <div className="bg-[#1e1e1e] p-5 rounded-xl border border-gray-700">
                 <div className="flex items-center gap-2 mb-4 text-app-primary">
-                    <RefreshCw size={20} />
-                    <h3 className="font-bold uppercase text-sm">Manajemen Modal</h3>
+                    <ShieldCheck size={20} />
+                    <h3 className="font-bold uppercase text-sm">Perawatan Data</h3>
                 </div>
                 
                 <div className="space-y-3">
+                     <button 
+                        onClick={handleManualHousekeeping}
+                        className="w-full py-3 bg-blue-900/20 border border-blue-800 hover:bg-blue-900/30 text-blue-400 font-bold rounded-xl flex justify-center items-center gap-2 text-sm"
+                    >
+                        <Database size={16} />
+                        DATABASE OPTIMIZER (Manual Scan)
+                    </button>
+
                     <button 
                         onClick={() => { onBack(); onUpdateCondition(); }}
                         className="w-full py-3 bg-gray-800 border border-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl flex justify-center items-center gap-2 text-sm"
@@ -241,10 +269,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
                     
                     <button 
                         onClick={confirmResetShift}
-                        className="w-full py-3 bg-red-900/20 border border-red-800 hover:bg-red-900/30 text-red-400 font-bold rounded-xl flex justify-center items-center gap-2 text-sm"
+                        className="w-full py-3 bg-gray-800 border border-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl flex justify-center items-center gap-2 text-sm"
                     >
-                        <AlertTriangle size={16} />
-                        RESET SHIFT DARI NOL
+                        <AlertTriangle size={16} className="text-amber-500"/>
+                        RESET SHIFT HARI INI
+                    </button>
+
+                    <button 
+                        onClick={confirmFactoryReset}
+                        className="w-full py-3 bg-red-900/20 border border-red-800 hover:bg-red-900/30 text-red-500 font-bold rounded-xl flex justify-center items-center gap-2 text-sm"
+                    >
+                        <Trash2 size={16} />
+                        HAPUS SEMUA DATA (RESET PABRIK)
                     </button>
                 </div>
             </div>

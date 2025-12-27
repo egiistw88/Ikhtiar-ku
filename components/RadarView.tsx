@@ -1,10 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftState } from '../types';
-import { calculateDistance, getTimeDifference, vibrate } from '../utils';
+import { calculateDistance, getTimeDifference, vibrate, playSound } from '../utils';
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
 import { CATEGORY_COLORS } from '../constants';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Disc, Power, Battery, Zap, RefreshCw, Sparkles, X, MapPin, Target } from 'lucide-react';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Disc, Power, Battery, Zap, RefreshCw, Sparkles, X, MapPin, Target, Loader2, Utensils, Bike, Package, ShoppingBag, Layers } from 'lucide-react';
 
 interface RadarViewProps {
   hotspots: Hotspot[];
@@ -23,6 +23,8 @@ interface ScoredHotspot extends Hotspot {
     isFallback?: boolean;
 }
 
+type QuickFilterType = 'ALL' | 'FOOD' | 'BIKE' | 'SEND';
+
 const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, currentTime, shiftState, onOpenSettings, onOpenSummary, onToast }) => {
   const [localHotspots, setLocalHotspots] = useState<Hotspot[]>(initialHotspots);
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
@@ -32,20 +34,30 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
   const [settings, setSettings] = useState<UserSettings>(getUserSettings());
   const [timeOnline, setTimeOnline] = useState<number>(0);
   
+  // NEW: Quick Filter State
+  const [quickFilter, setQuickFilter] = useState<QuickFilterType>('ALL');
+
   // AI & Scanning State
   const [isScanning, setIsScanning] = useState(false);
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
 
+  // GPS Accuracy State
+  const [gpsReady, setGpsReady] = useState(false);
+
   useEffect(() => {
     syncData();
     // Force location update on mount
     if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        const watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                setGpsReady(true);
+            },
             (err) => console.log("GPS Error", err),
-            { enableHighAccuracy: true, timeout: 5000 }
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
         );
+        return () => navigator.geolocation.clearWatch(watchId);
     }
     const interval = setInterval(syncData, 30000); // Sync faster
     return () => clearInterval(interval);
@@ -67,18 +79,21 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
 
   const handleManualScan = () => {
       vibrate(10);
+      playSound('click');
       setIsScanning(true);
       
       // Simulate scanning delay
       setTimeout(() => {
           syncData();
           setIsScanning(false);
+          playSound('success');
           onToast("Radar berhasil diperbarui!");
       }, 1000);
   };
 
   const handleAiAnalysis = async () => {
       vibrate(20);
+      playSound('click');
       setIsAiLoading(true);
       setAiAdvice(null);
       
@@ -87,6 +102,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
       setAiAdvice(strategy);
       setIsAiLoading(false);
       vibrate([50, 50]);
+      playSound('success');
   };
 
   const handleValidation = (id: string, isAccurate: boolean) => {
@@ -97,7 +113,22 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
           : h
       ));
       vibrate(10);
+      playSound(isAccurate ? 'success' : 'click');
       onToast(isAccurate ? "Validasi: Gacor!" : "Validasi: Anyep");
+  };
+
+  // NEW: Quick Filter Logic Handler
+  const handleQuickFilter = (type: QuickFilterType) => {
+      vibrate(10);
+      playSound('click');
+      setQuickFilter(type);
+      
+      // Also update isRainMode implicitly for Food? No, keep it separate.
+      if (type === 'FOOD') {
+          onToast("Filter: Kuliner & Shop");
+      } else if (type === 'BIKE') {
+          onToast("Filter: Penumpang");
+      }
   };
 
   const predictions: ScoredHotspot[] = useMemo(() => {
@@ -105,22 +136,32 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
     const currentNet = financials?.netCash || 0;
     const isBehind = (currentNet < (settings.targetRevenue * 0.4)); 
 
-    // Filter Step 1: Valid & Preference Check
+    // Filter Step 1: Valid & Preference Check (Combined with Quick Filter)
     let candidates = localHotspots.filter(h => {
         const bad = h.validations?.find(v => v.date === todayStr && !v.isAccurate);
         if (bad) return false;
         
-        const p = settings.preferences;
-        if (!p.showFood && (h.category.includes('Culinary') || h.type === 'Food')) return false;
-        if (!p.showBike && (h.type.includes('Bike') || h.type === 'Ride')) return false;
-        if (!p.showSend && (h.type.includes('Delivery') || h.category === 'Logistics')) return false;
-        if (!p.showShop && (h.type.includes('Shop') || h.category === 'Mall/Lifestyle')) return false;
+        // 1. QUICK FILTER OVERRIDE
+        if (quickFilter === 'FOOD') {
+            if (!(h.category.includes('Culinary') || h.type === 'Food' || h.type.includes('Shop') || h.category === 'Mall/Lifestyle')) return false;
+        } else if (quickFilter === 'BIKE') {
+            if (!(h.type.includes('Bike') || h.type === 'Ride' || h.category === 'Residential' || h.category === 'Transport Hub')) return false;
+        } else if (quickFilter === 'SEND') {
+            if (!(h.type.includes('Delivery') || h.category === 'Logistics')) return false;
+        } else {
+            // If ALL, fallback to User Settings Preferences
+            const p = settings.preferences;
+            if (!p.showFood && (h.category.includes('Culinary') || h.type === 'Food')) return false;
+            if (!p.showBike && (h.type.includes('Bike') || h.type === 'Ride')) return false;
+            if (!p.showSend && (h.type.includes('Delivery') || h.category === 'Logistics')) return false;
+            if (!p.showShop && (h.type.includes('Shop') || h.category === 'Mall/Lifestyle')) return false;
+        }
 
         return true;
     });
 
     const scoreSpot = (h: Hotspot, isStrictTime: boolean): ScoredHotspot => {
-        const dist = userLocation ? calculateDistance(userLocation.lat, userLocation.lng, h.lat, h.lng) : 0;
+        const dist = (userLocation && gpsReady) ? calculateDistance(userLocation.lat, userLocation.lng, h.lat, h.lng) : 999;
         let score = 100;
         let reason = "";
         let isMaintenance = false;
@@ -138,11 +179,14 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         }
 
         // Distance Scoring
-        const fuelLevel = shiftState?.startFuel || 50;
-        const radiusLimit = isRainMode ? 5 : (fuelLevel < 25 ? 4 : 20);
-        
-        if (dist > radiusLimit) score -= 500; // Too far
-        else score -= (dist * 3); // Closer is better
+        if (gpsReady) {
+            const fuelLevel = shiftState?.startFuel || 50;
+            const radiusLimit = isRainMode ? 5 : (fuelLevel < 25 ? 4 : 20);
+            if (dist > radiusLimit) score -= 500; // Too far
+            else score -= (dist * 3); // Closer is better
+        } else {
+            score -= 10;
+        }
 
         // Condition Modifiers
         if (isRainMode && ['Mall/Lifestyle', 'Culinary'].includes(h.category)) {
@@ -177,7 +221,10 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
     if (results.length < 3) {
         const fallbacks = candidates
             .map(h => ({ ...scoreSpot(h, false), isFallback: true }))
-            .filter(h => h.score > 20 && h.distance < 5) // Only close ones
+            .filter(h => {
+                if (gpsReady) return h.score > 20 && h.distance < 5;
+                return h.score > 20; // Relaxed distance check if GPS not ready
+            }) 
             .sort((a, b) => b.score - a.score)
             .slice(0, 5);
         
@@ -189,10 +236,19 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
 
     return results.sort((a, b) => b.score - a.score).slice(0, 10);
 
-  }, [localHotspots, currentTime, isRainMode, financials, userLocation, shiftState, settings]);
+  }, [localHotspots, currentTime, isRainMode, financials, userLocation, gpsReady, shiftState, settings, quickFilter]);
 
   const progress = Math.min(100, Math.round(((financials?.netCash || 0) / settings.targetRevenue) * 100));
   const statusColor = shiftState?.status === 'CRITICAL' ? 'bg-red-500' : shiftState?.status === 'WARNING' ? 'bg-amber-500' : 'bg-emerald-500';
+
+  const FilterChip = ({ type, label, icon }: { type: QuickFilterType, label: string, icon: React.ReactNode }) => (
+      <button 
+        onClick={() => handleQuickFilter(type)}
+        className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${quickFilter === type ? 'bg-white text-black border-white shadow-glow' : 'bg-[#1e1e1e] text-gray-400 border-gray-700 hover:bg-gray-800'}`}
+      >
+          {icon} {label}
+      </button>
+  );
 
   return (
     <div className="pt-4 px-4 space-y-6">
@@ -211,12 +267,12 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
             
             <div className="flex gap-2 relative z-10">
                 <button 
-                    onClick={() => { setIsRainMode(!isRainMode); vibrate(10); }}
+                    onClick={() => { setIsRainMode(!isRainMode); vibrate(10); playSound('click'); }}
                     className={`p-3 rounded-2xl transition-all active:scale-95 ${isRainMode ? 'bg-blue-600 text-white shadow-glow ring-2 ring-blue-400' : 'bg-[#222] text-gray-400 border border-gray-700'}`}
                 >
                     {isRainMode ? <CloudRain size={20} className="animate-bounce" /> : <Sun size={20} />}
                 </button>
-                <button onClick={onOpenSettings} className="p-3 rounded-2xl bg-[#222] border border-gray-700 text-gray-400 hover:text-white transition-colors">
+                <button onClick={() => { onOpenSettings(); playSound('click'); }} className="p-3 rounded-2xl bg-[#222] border border-gray-700 text-gray-400 hover:text-white transition-colors">
                     <Settings size={20} />
                 </button>
             </div>
@@ -263,7 +319,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         </div>
 
         <button 
-            onClick={() => onOpenSummary(financials)}
+            onClick={() => { onOpenSummary(financials); playSound('click'); }}
             className="absolute bottom-4 right-4 bg-[#222] hover:bg-gray-700 text-red-400 p-2 rounded-lg border border-gray-700 transition-colors shadow-lg z-20"
             title="Tutup Buku / Selesai Shift"
         >
@@ -271,7 +327,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         </button>
       </div>
       
-      {/* AI STRATEGY BOX (REDESIGNED MAXIM STYLE) */}
+      {/* AI STRATEGY BOX */}
       <div className="relative">
         {!aiAdvice ? (
              <button 
@@ -285,11 +341,9 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         ) : (
             <div className="bg-gradient-to-br from-yellow-400/10 to-yellow-600/5 border border-yellow-500/50 rounded-2xl p-5 relative animate-in fade-in slide-in-from-top-4 shadow-lg shadow-yellow-900/10">
                 <div className="flex items-start gap-4">
-                    {/* ICON BAN MOTOR MERAH DENGAN BACKGROUND KUNING */}
                     <div className="flex-shrink-0 w-12 h-12 bg-app-primary rounded-xl flex items-center justify-center shadow-lg border border-yellow-300">
                         <Disc size={28} className="text-red-600 animate-[spin_3s_linear_infinite]" strokeWidth={2.5} />
                     </div>
-                    
                     <div>
                         <h4 className="font-black text-app-primary text-xs uppercase mb-1 tracking-wider flex items-center gap-1">
                              <Target size={12}/> STRATEGI ORDERAN
@@ -300,7 +354,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
                     </div>
                 </div>
                 <button 
-                    onClick={() => { setAiAdvice(null); vibrate(10); }}
+                    onClick={() => { setAiAdvice(null); vibrate(10); playSound('click'); }}
                     className="absolute top-2 right-2 p-2 bg-black/20 rounded-full text-gray-400 hover:text-white hover:bg-black/40 transition-colors"
                 >
                     <X size={14} />
@@ -311,21 +365,30 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
 
       {/* 2. INTELLIGENT RADAR LIST */}
       <div>
-        <div className="flex justify-between items-end mb-4 px-1">
-            <div className="flex items-center gap-2">
-                <Zap className="text-app-primary fill-current" size={18} />
-                <h2 className="text-lg font-bold text-white">Radar Rezeki</h2>
-                
-                <button 
-                    onClick={handleManualScan} 
-                    className={`ml-2 p-1.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700 transition-all active:bg-gray-700 ${isScanning ? 'animate-spin text-app-primary border-app-primary' : ''}`}
-                >
-                    <RefreshCw size={14} />
-                </button>
+        <div className="flex flex-col gap-3 mb-4">
+            <div className="flex justify-between items-end px-1">
+                <div className="flex items-center gap-2">
+                    <Zap className="text-app-primary fill-current" size={18} />
+                    <h2 className="text-lg font-bold text-white">Radar Rezeki</h2>
+                    <button 
+                        onClick={handleManualScan} 
+                        className={`ml-2 p-1.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700 transition-all active:bg-gray-700 ${isScanning ? 'animate-spin text-app-primary border-app-primary' : ''}`}
+                    >
+                        <RefreshCw size={14} />
+                    </button>
+                </div>
+                <span className="text-xs text-gray-500 font-mono border border-gray-800 px-2 py-1 rounded-lg bg-[#111]">
+                    {predictions.length} Titik
+                </span>
             </div>
-            <span className="text-xs text-gray-500 font-mono border border-gray-800 px-2 py-1 rounded-lg bg-[#111]">
-                {predictions.length} Titik Potensial
-            </span>
+
+            {/* QUICK FILTER CHIPS */}
+            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                <FilterChip type="ALL" label="Semua" icon={<Layers size={14} />} />
+                <FilterChip type="FOOD" label="Food & Shop" icon={<Utensils size={14} />} />
+                <FilterChip type="BIKE" label="Bike/Car" icon={<Bike size={14} />} />
+                <FilterChip type="SEND" label="Kirim" icon={<Package size={14} />} />
+            </div>
         </div>
 
         <div className="space-y-3 pb-24">
@@ -336,20 +399,20 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
                     </div>
                     <div>
                         <p className="text-gray-300 font-bold text-sm">Zona Anyep (Tidak Ada Spot)</p>
-                        <p className="text-xs text-gray-600 mt-1 max-w-[220px] mx-auto">Mungkin filter terlalu ketat atau belum ada data di jam ini. Coba cek pengaturan atau scan ulang.</p>
+                        <p className="text-xs text-gray-600 mt-1 max-w-[220px] mx-auto">Coba matikan filter layanan atau tunggu beberapa saat lagi.</p>
                     </div>
                     <div className="flex gap-2 justify-center">
-                        <button 
-                            onClick={handleManualScan}
-                            className="px-5 py-2.5 bg-gray-800 text-app-primary border border-gray-700 rounded-full text-xs font-bold hover:bg-gray-700 active:scale-95 transition-all"
+                         <button 
+                            onClick={() => handleQuickFilter('ALL')}
+                            className="px-5 py-2.5 bg-gray-800 text-white border border-gray-700 rounded-full text-xs font-bold hover:bg-gray-700"
                         >
-                            <RefreshCw size={14} className="inline mr-2" /> REFRESH
+                            TAMPILKAN SEMUA
                         </button>
                         <button 
-                            onClick={onOpenSettings}
-                            className="px-5 py-2.5 bg-gray-800 text-gray-300 border border-gray-700 rounded-full text-xs font-bold hover:bg-gray-700 active:scale-95 transition-all"
+                            onClick={handleManualScan}
+                            className="px-5 py-2.5 bg-gray-800 text-app-primary border border-gray-700 rounded-full text-xs font-bold hover:bg-gray-700"
                         >
-                            CEK FILTER
+                            REFRESH
                         </button>
                     </div>
                 </div>
@@ -383,15 +446,15 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
                                 </div>
                                 <div className="text-right flex-shrink-0">
                                     <span className="block text-xl font-mono font-bold text-app-primary">{spot.predicted_hour}</span>
-                                    <span className="text-[10px] font-bold text-gray-500">
-                                        {spot.distance} km
+                                    <span className={`text-[10px] font-bold ${gpsReady ? 'text-gray-500' : 'text-amber-500 animate-pulse'}`}>
+                                        {gpsReady ? `${spot.distance} km` : 'Mencari Lokasi...'}
                                     </span>
                                 </div>
                             </div>
 
                             <div className="flex items-center gap-3 mt-4 border-t border-gray-800 pt-3">
                                 <button 
-                                    onClick={() => { window.open(`https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}`, '_blank'); vibrate(10); }}
+                                    onClick={() => { window.open(`https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}`, '_blank'); vibrate(10); playSound('click'); }}
                                     className={`flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-transform active:scale-95 ${spot.isMaintenance ? 'bg-red-600 text-white shadow-lg shadow-red-900/50' : 'bg-white text-black hover:bg-gray-200 shadow-glow'}`}
                                 >
                                     <Navigation size={16} />

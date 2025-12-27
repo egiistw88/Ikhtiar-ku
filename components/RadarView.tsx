@@ -4,7 +4,7 @@ import { calculateDistance, getTimeDifference, vibrate } from '../utils';
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
 import { CATEGORY_COLORS } from '../constants';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, MapPin, Wrench, Power, AlertTriangle, CheckCircle, Battery, Zap, RefreshCw, Bot, Sparkles, X } from 'lucide-react';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, MapPin, Wrench, Power, AlertTriangle, CheckCircle, Battery, Zap, RefreshCw, Bot, Sparkles, X, Map } from 'lucide-react';
 
 interface RadarViewProps {
   hotspots: Hotspot[];
@@ -39,19 +39,21 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
 
   useEffect(() => {
     syncData();
+    // Force location update on mount
     if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
             (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-            undefined,
-            { enableHighAccuracy: true }
+            (err) => console.log("GPS Error", err),
+            { enableHighAccuracy: true, timeout: 5000 }
         );
     }
-    const interval = setInterval(syncData, 60000);
+    const interval = setInterval(syncData, 30000); // Sync faster
     return () => clearInterval(interval);
-  }, [initialHotspots, shiftState]);
+  }, [shiftState]); // Removed initialHotspots dependency to prevent loops
 
   const syncData = () => {
-        setLocalHotspots(getHotspots()); 
+        const freshHotspots = getHotspots();
+        setLocalHotspots(freshHotspots); 
         setFinancials(getTodayFinancials());
         setGarage(getGarageData());
         setSettings(getUserSettings());
@@ -66,11 +68,13 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
   const handleManualScan = () => {
       vibrate(10);
       setIsScanning(true);
+      
+      // Simulate scanning delay
       setTimeout(() => {
-          setIsScanning(false);
           syncData();
-          onToast("Radar Diperbarui");
-      }, 800);
+          setIsScanning(false);
+          onToast("Radar berhasil diperbarui!");
+      }, 1000);
   };
 
   const handleAiAnalysis = async () => {
@@ -78,20 +82,22 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
       setIsAiLoading(true);
       setAiAdvice(null);
       
-      // Call AI Service
       const strategy = await generateDriverStrategy(predictions, financials, shiftState);
       
       setAiAdvice(strategy);
       setIsAiLoading(false);
-      
-      // Haptic Success
       vibrate([50, 50]);
   };
 
   const handleValidation = (id: string, isAccurate: boolean) => {
       toggleValidation(id, isAccurate);
-      setLocalHotspots(getHotspots());
+      setLocalHotspots(prev => prev.map(h => 
+          h.id === id 
+          ? { ...h, validations: [...(h.validations || []), { date: currentTime.fullDate.toISOString().split('T')[0], isAccurate }] } 
+          : h
+      ));
       vibrate(10);
+      onToast(isAccurate ? "Validasi: Gacor!" : "Validasi: Anyep");
   };
 
   const predictions: ScoredHotspot[] = useMemo(() => {
@@ -99,14 +105,17 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
     const currentNet = financials?.netCash || 0;
     const isBehind = (currentNet < (settings.targetRevenue * 0.4)); 
 
+    // Filter Step 1: Valid & Preference Check
     let candidates = localHotspots.filter(h => {
+        // Remove validated 'Anyep' spots for today
         const bad = h.validations?.find(v => v.date === todayStr && !v.isAccurate);
         if (bad) return false;
         
         const p = settings.preferences;
-        if (!p.showFood && h.category.includes('Culinary')) return false;
-        if (!p.showBike && h.type.includes('Bike')) return false;
+        if (!p.showFood && (h.category.includes('Culinary') || h.type === 'Food')) return false;
+        if (!p.showBike && (h.type.includes('Bike') || h.type === 'Ride')) return false;
         if (!p.showSend && (h.type.includes('Delivery') || h.category === 'Logistics')) return false;
+        if (!p.showShop && (h.type.includes('Shop') || h.category === 'Mall/Lifestyle')) return false;
 
         return true;
     });
@@ -118,49 +127,60 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         let isMaintenance = false;
 
         const tDiff = getTimeDifference(h.predicted_hour, currentTime.timeString);
+        
+        // Time Scoring
         if (isStrictTime) {
-            if (h.day !== currentTime.dayName) score -= 500; 
-            if (tDiff > 90) score -= 50;
+            if (h.day !== currentTime.dayName) score -= 1000; // Wrong day
+            if (tDiff > 90) score -= 50; // > 1.5 hours diff
             reason = "Sesuai Jadwal";
         } else {
             reason = "Alternatif Terdekat";
-            score -= 20; 
+            score -= 30; 
         }
 
+        // Distance Scoring
         const fuelLevel = shiftState?.startFuel || 50;
-        const radiusLimit = isRainMode ? 5 : (fuelLevel < 25 ? 4 : 15);
+        const radiusLimit = isRainMode ? 5 : (fuelLevel < 25 ? 4 : 20);
         
-        if (dist > radiusLimit) score -= 200; 
-        else score -= (dist * 2);
+        if (dist > radiusLimit) score -= 500; // Too far
+        else score -= (dist * 3); // Closer is better
 
+        // Condition Modifiers
         if (isRainMode && ['Mall/Lifestyle', 'Culinary'].includes(h.category)) {
-            score += 40; reason = "Spot Teduh & Gacor";
+            score += 50; reason = "Spot Teduh & Gacor";
         }
         if (isBehind && h.category === 'Transport Hub') {
-            score += 25; reason = "Booster Target";
+            score += 30; reason = "Booster Target";
         }
         if (h.zone.includes('Pusat Kota')) {
             score += 10; 
         }
 
+        // Maintenance Logic
         const maintenanceInterval = garage?.serviceInterval || 2000;
-        if (garage && (garage.currentOdometer - garage.lastOilChangeKm > maintenanceInterval) && h.category === 'Service') {
-            score = 1000; isMaintenance = true; reason = "URGENT: SERVIS";
+        const kmSinceOil = (garage?.currentOdometer || 0) - (garage?.lastOilChangeKm || 0);
+        
+        if (kmSinceOil > maintenanceInterval && h.category === 'Service') {
+            score = 2000; // Top priority
+            isMaintenance = true; 
+            reason = "URGENT: SERVIS";
         }
 
         return { ...h, distance: dist, score: Math.round(score), matchReason: reason, isMaintenance };
     };
 
+    // Strategy 1: Strict Time & Day
     let results = candidates
         .map(h => scoreSpot(h, true))
-        .filter(h => h.score > 40 && h.day === currentTime.dayName);
+        .filter(h => h.score > 40);
 
+    // Strategy 2: Fallback (Relaxed Time, strict Distance)
     if (results.length < 3) {
         const fallbacks = candidates
             .map(h => ({ ...scoreSpot(h, false), isFallback: true }))
-            .filter(h => h.score > 30 && h.distance < 5) 
+            .filter(h => h.score > 20 && h.distance < 5) // Only close ones
             .sort((a, b) => b.score - a.score)
-            .slice(0, 3);
+            .slice(0, 5);
         
         const existingIds = new Set(results.map(r => r.id));
         fallbacks.forEach(f => {
@@ -170,7 +190,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
 
     return results.sort((a, b) => b.score - a.score).slice(0, 10);
 
-  }, [localHotspots, currentTime, isRainMode, financials, userLocation, shiftState]);
+  }, [localHotspots, currentTime, isRainMode, financials, userLocation, shiftState, settings]);
 
   const progress = Math.min(100, Math.round(((financials?.netCash || 0) / settings.targetRevenue) * 100));
   const statusColor = shiftState?.status === 'CRITICAL' ? 'bg-red-500' : shiftState?.status === 'WARNING' ? 'bg-amber-500' : 'bg-emerald-500';
@@ -179,7 +199,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
     <div className="pt-4 px-4 space-y-6">
       
       {/* 1. DASHBOARD HEADER */}
-      <div className="relative bg-app-card rounded-3xl p-5 border border-app-border overflow-hidden">
+      <div className="relative bg-app-card rounded-3xl p-5 border border-app-border overflow-hidden shadow-lg">
         <div className={`absolute top-0 right-0 w-40 h-40 blur-[80px] rounded-full opacity-20 transition-colors duration-1000 ${progress >= 100 ? 'bg-emerald-400' : 'bg-app-primary'}`}></div>
         
         <div className="flex justify-between items-start mb-6">
@@ -252,7 +272,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         </button>
       </div>
       
-      {/* AI STRATEGY BOX (NEW) */}
+      {/* AI STRATEGY BOX */}
       <div className="relative">
         {!aiAdvice ? (
              <button 
@@ -293,7 +313,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
                 
                 <button 
                     onClick={handleManualScan} 
-                    className={`ml-2 p-1.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700 ${isScanning ? 'animate-spin text-app-primary border-app-primary' : ''}`}
+                    className={`ml-2 p-1.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700 transition-all active:bg-gray-700 ${isScanning ? 'animate-spin text-app-primary border-app-primary' : ''}`}
                 >
                     <RefreshCw size={14} />
                 </button>
@@ -305,20 +325,28 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
 
         <div className="space-y-3 pb-24">
             {predictions.length === 0 ? (
-                <div className="py-12 text-center border-2 border-dashed border-gray-800 rounded-2xl bg-[#111] space-y-4">
-                    <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-3">
-                        <CloudRain size={32} className="text-gray-500" />
+                <div className="py-10 px-6 text-center border-2 border-dashed border-gray-800 rounded-2xl bg-[#111] space-y-4 animate-in fade-in">
+                    <div className="w-16 h-16 bg-gray-900 rounded-full flex items-center justify-center mx-auto mb-3 border border-gray-800">
+                        <CloudRain size={32} className="text-gray-600" />
                     </div>
                     <div>
-                        <p className="text-gray-400 font-bold">Area Sepi (Zona Anyep)</p>
-                        <p className="text-xs text-gray-600 mt-1 max-w-[200px] mx-auto">Saran: Geser ke pusat keramaian atau matikan filter.</p>
+                        <p className="text-gray-300 font-bold text-sm">Zona Anyep (Tidak Ada Spot)</p>
+                        <p className="text-xs text-gray-600 mt-1 max-w-[220px] mx-auto">Mungkin filter terlalu ketat atau belum ada data di jam ini. Coba cek pengaturan atau scan ulang.</p>
                     </div>
-                    <button 
-                        onClick={handleManualScan}
-                        className="px-6 py-2 bg-gray-800 text-app-primary border border-gray-700 rounded-full text-xs font-bold animate-pulse hover:bg-gray-700"
-                    >
-                        REFRESH RADAR
-                    </button>
+                    <div className="flex gap-2 justify-center">
+                        <button 
+                            onClick={handleManualScan}
+                            className="px-5 py-2.5 bg-gray-800 text-app-primary border border-gray-700 rounded-full text-xs font-bold hover:bg-gray-700 active:scale-95 transition-all"
+                        >
+                            <RefreshCw size={14} className="inline mr-2" /> REFRESH
+                        </button>
+                        <button 
+                            onClick={onOpenSettings}
+                            className="px-5 py-2.5 bg-gray-800 text-gray-300 border border-gray-700 rounded-full text-xs font-bold hover:bg-gray-700 active:scale-95 transition-all"
+                        >
+                            CEK FILTER
+                        </button>
+                    </div>
                 </div>
             ) : (
                 predictions.map(spot => (

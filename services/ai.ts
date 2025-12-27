@@ -12,97 +12,73 @@ export const generateDriverStrategy = async (
 ): Promise<string> => {
     try {
         if (!process.env.API_KEY) {
+            console.warn("AI Service: API Key is missing");
             return "Kunci API (API Key) belum dipasang Ndan. Kontak developer.";
         }
 
-        const model = 'gemini-3-flash-preview';
+        const model = 'gemini-2.5-flash-latest'; // Use 2.5 Flash for speed/reliability in production
         
         // Prepare context data cleaning (Minimize tokens)
-        const cleanHotspots = hotspots.slice(0, 8).map(h => ({
+        const cleanHotspots = hotspots.slice(0, 5).map(h => ({
             loc: h.origin,
-            time: h.predicted_hour,
             cat: h.category,
+            dist: 'Dekat'
         }));
 
         const contextData = {
             performance: financials ? {
-                gross: financials.grossIncome,
                 net: financials.netCash,
-            } : "Nihil",
-            condition: shift ? {
-                fuel: shift.startFuel,
-            } : "Nihil",
+            } : "0",
+            fuel: shift ? shift.startFuel : "50",
             radar: cleanHotspots
         };
 
         const prompt = `
-            Role: Ketua Komunitas Ojol Bandung. Senior, bijak, bahasa gaul sopan (panggil "Ndan").
-            Data: ${JSON.stringify(contextData)}
-            Tugas:
-            1. Analisis singkat kondisi modal/bensin.
-            2. Rekomendasikan 1 lokasi dari data radar untuk dituju sekarang.
+            Act as "Ketua Komunitas Ojol".
+            Context: ${JSON.stringify(contextData)}
             
-            Jawab dalam 1 paragraf narasi pendek saja. Jangan pakai list/poin.
+            Task:
+            Give 2 sentences of strategic advice in Indonesian slang (Ndan, Gacor, Anyep).
+            1. Comment on modal/fuel.
+            2. Pick ONE best location from radar.
+            
+            Output ONLY text. No markdown formatting.
         `;
 
         const response = await ai.models.generateContent({
             model: model,
             contents: prompt,
             config: {
-                temperature: 0.6,
-                maxOutputTokens: 150,
+                temperature: 0.7,
+                maxOutputTokens: 100,
             }
         });
 
-        // ROBUST EXTRACTION STRATEGY
-        // Level 1: Standard Getter
-        if (typeof response.text === 'string') {
-            return response.text;
+        // Strict & Deep Checking
+        if (response && response.text) {
+             const cleanText = response.text.trim();
+             if (cleanText.length > 0) return cleanText;
         }
 
-        // Level 2: Manual Candidate Extraction (Fallback)
-        const candidate = response.candidates?.[0];
-        if (candidate?.content?.parts?.[0]?.text) {
-            return candidate.content.parts[0].text;
-        }
-
-        // Level 3: Handle Safety/Blocked response
-        if (candidate?.finishReason) {
-            return `AI terhenti (Status: ${candidate.finishReason}). Coba lagi.`;
-        }
+        // Fallback deep inspection
+        const fallbackText = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (fallbackText) return fallbackText;
         
-        return "Sinyal AI diterima tapi kosong. Coba lagi Ndan.";
+        return "Sinyal AI terputus. Coba lagi nanti Ndan.";
 
     } catch (error: any) {
-        console.error("AI Error:", error);
+        console.error("AI Service Error:", error);
         
-        // Defensive Error Message Handling
-        const msg = typeof error === 'object' && error?.message ? error.message : String(error);
+        const msg = String(error?.message || error);
 
-        if (msg.includes('429')) return "Server AI lagi sibuk parah (Overload). Tunggu bentar.";
-        if (msg.includes('API key')) return "Masalah izin akses (API Key Error).";
+        if (msg.includes('429')) return "Server AI Overload. Tunggu 1 menit.";
+        if (msg.includes('API key')) return "API Key Bermasalah. Cek Pengaturan.";
+        if (msg.includes('fetch')) return "Koneksi Internet Bermasalah.";
         
-        return "Gagal terhubung ke Markas Pusat (AI Error). Cek sinyal internet.";
+        return "Sistem AI sedang maintenance. Manual dulu Ndan.";
     }
 };
 
 export const analyzeHotspotTrend = async (hotspots: Hotspot[]): Promise<string> => {
-    try {
-        if (!process.env.API_KEY) return "API Key Missing";
-
-         const prompt = `
-            Data Orderan: ${JSON.stringify(hotspots.slice(0, 10).map(h => h.category))}
-            Pola apa yang mendominasi? Jawab 1 frasa saja (Contoh: "Dominan Kuliner Malam").
-         `;
-         
-         const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt,
-         });
-
-         if (typeof response.text === 'string') return response.text;
-         return "-";
-    } catch (e) {
-        return "Analisis Tertunda";
-    }
+    return "Analisis Trend Dimatikan (Hemat Kuota)";
 }

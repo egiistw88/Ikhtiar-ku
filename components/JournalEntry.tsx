@@ -3,6 +3,7 @@ import { Hotspot, Transaction } from '../types';
 import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate } from '../utils';
 import { Save, MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, MicOff, Zap } from 'lucide-react';
 import { addHotspot, addTransaction } from '../services/storage';
+import CustomDialog from './CustomDialog';
 
 interface JournalEntryProps {
   currentTime: {
@@ -40,6 +41,11 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
 
+  // Dialog State
+  const [alertConfig, setAlertConfig] = useState<{isOpen: boolean, title: string, msg: string}>({
+      isOpen: false, title: '', msg: ''
+  });
+
   useEffect(() => {
     setEntryTime(currentTime.timeString);
     if (navigator.geolocation) {
@@ -71,7 +77,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       const SpeechRecognition = windowObj.SpeechRecognition || windowObj.webkitSpeechRecognition;
 
       if (!SpeechRecognition) {
-          alert("Browser ini tidak mendukung fitur suara. Gunakan Google Chrome.");
+          showAlert("Ups!", "Browser ini tidak mendukung fitur suara. Gunakan Chrome Ndan.");
           return;
       }
 
@@ -91,7 +97,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       recognition.onerror = (e: any) => { 
           console.error(e); 
           setIsListening(false); 
-          alert("Gagal mendengar. Cek izin mikrofon atau coba lagi.");
+          showAlert("Gagal Dengar", "Coba lagi Ndan, atau cek izin mikrofon.");
       };
 
       recognition.onresult = (event: any) => {
@@ -101,6 +107,10 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
       recognitionRef.current = recognition;
       recognition.start();
+  };
+
+  const showAlert = (title: string, msg: string) => {
+      setAlertConfig({ isOpen: true, title, msg });
   };
 
   const parseVoiceCommand = (text: string) => {
@@ -198,13 +208,13 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
     vibrate(50); 
 
     if (!coords) {
-        alert("Sabar Ndan, GPS belum ngunci lokasi. Geser ke tempat terbuka sebentar.");
+        showAlert("GPS Lemah", "Sabar Ndan, GPS belum ngunci lokasi. Geser ke tempat terbuka sebentar.");
         return;
     }
     
     const argoVal = parseCurrencyInput(argoRaw);
     if (!argoVal || argoVal <= 0) {
-        alert("Isi dulu argonya Ndan.");
+        showAlert("Lupa Argo?", "Isi dulu argonya Ndan.");
         return;
     }
 
@@ -284,6 +294,14 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
   return (
     <div className="pb-32 pt-4 px-4 max-w-lg mx-auto min-h-full">
+      <CustomDialog 
+        isOpen={alertConfig.isOpen}
+        type="alert"
+        title={alertConfig.title}
+        message={alertConfig.msg}
+        onConfirm={() => setAlertConfig(prev => ({ ...prev, isOpen: false }))}
+      />
+
       <div className="flex justify-between items-end mb-6">
           <div>
             <h2 className="text-2xl font-black text-white uppercase tracking-tight">Input Gacor</h2>

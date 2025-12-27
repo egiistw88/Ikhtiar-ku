@@ -1,14 +1,33 @@
 import { GoogleGenAI } from "@google/genai";
 import { Hotspot, DailyFinancial, ShiftState } from '../types';
 
-// Defensive initialization: Only init if key exists, otherwise let the function handle the error gracefully
+const API_STORAGE_KEY = 'ikhtiar_ku_api_key';
+
+// Defensive initialization: Check localStorage first (User input), then Env (Build time)
 const getAiClient = () => {
-    const key = process.env.API_KEY;
+    // 1. Cek Local Storage (Input manual user)
+    let key = '';
+    if (typeof localStorage !== 'undefined') {
+        key = localStorage.getItem(API_STORAGE_KEY) || '';
+    }
+
+    // 2. Jika kosong, cek Environment Variable
+    if (!key) {
+        key = process.env.API_KEY || '';
+    }
+
     if (!key) return null;
     return new GoogleGenAI({ apiKey: key });
 };
 
-const ai = getAiClient();
+// Helper untuk menyimpan key dari SettingsView
+export const saveUserApiKey = (key: string) => {
+    localStorage.setItem(API_STORAGE_KEY, key);
+}
+
+export const getUserApiKey = (): string => {
+    return localStorage.getItem(API_STORAGE_KEY) || '';
+}
 
 export const generateDriverStrategy = async (
     hotspots: Hotspot[], 
@@ -16,9 +35,11 @@ export const generateDriverStrategy = async (
     shift: ShiftState | null
 ): Promise<string> => {
     try {
+        const ai = getAiClient();
+        
         if (!ai) {
-            console.warn("AI Service: API Key is missing in environment variables.");
-            return "Kunci API (API Key) belum dipasang Ndan. Kontak developer.";
+            console.warn("AI Service: API Key is missing.");
+            return "API Key belum diisi Ndan. Masuk ke Pengaturan -> Input API Key (Gratis dari Google).";
         }
 
         const model = 'gemini-2.5-flash-latest'; 
@@ -39,7 +60,7 @@ export const generateDriverStrategy = async (
         };
 
         const prompt = `
-            Act as "Ketua Komunitas Ojol".
+            Act as "Ketua Komunitas Ojol Indonesia".
             Context: ${JSON.stringify(contextData)}
             
             Task:
@@ -68,18 +89,18 @@ export const generateDriverStrategy = async (
         const fallbackText = response?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (fallbackText) return fallbackText;
         
-        return "Sinyal AI terputus (Empty Response). Coba lagi nanti Ndan.";
+        return "Sinyal AI terputus. Coba lagi nanti Ndan.";
 
     } catch (error: any) {
         console.error("AI Service Error:", error);
         
         const msg = String(error?.message || error);
 
-        if (msg.includes('429')) return "Server AI Overload. Tunggu 1 menit.";
-        if (msg.includes('API key')) return "API Key Bermasalah. Cek Pengaturan.";
+        if (msg.includes('429')) return "Server AI Overload. Tunggu sebentar.";
+        if (msg.includes('API key') || msg.includes('403')) return "API Key Salah/Kadaluarsa. Cek Pengaturan.";
         if (msg.includes('fetch')) return "Koneksi Internet Bermasalah.";
         
-        return "Sistem AI sedang maintenance. Manual dulu Ndan.";
+        return "AI sedang istirahat. Manual dulu Ndan.";
     }
 };
 

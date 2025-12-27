@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings } from '../types';
 import { getUserSettings, saveUserSettings, clearShiftState, createBackupString, restoreFromBackup } from '../services/storage';
-import { Settings, Save, Coffee, Bike, Package, ShoppingBag, Target, ArrowLeft, RefreshCw, AlertTriangle, Edit3, Download, Upload, CheckCircle } from 'lucide-react';
+import { saveUserApiKey, getUserApiKey } from '../services/ai';
+import { Settings, Save, Coffee, Bike, Package, ShoppingBag, Target, ArrowLeft, RefreshCw, AlertTriangle, Edit3, Download, Upload, CheckCircle, Key } from 'lucide-react';
+import CustomDialog from './CustomDialog';
 
 interface SettingsViewProps {
     onBack: () => void;
@@ -11,10 +13,17 @@ interface SettingsViewProps {
 const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }) => {
     const [settings, setSettings] = useState<UserSettings>(getUserSettings());
     const [targetInput, setTargetInput] = useState<string>('');
+    const [apiKeyInput, setApiKeyInput] = useState<string>('');
     const [restoreStatus, setRestoreStatus] = useState<string>('');
+    
+    // Dialog State
+    const [dialogConfig, setDialogConfig] = useState<{isOpen: boolean, type: 'confirm'|'alert'|'info', title: string, msg: string, action?: () => void}>({
+        isOpen: false, type: 'info', title: '', msg: ''
+    });
 
     useEffect(() => {
         setTargetInput(settings.targetRevenue.toString());
+        setApiKeyInput(getUserApiKey());
     }, []);
 
     const handleSave = () => {
@@ -23,14 +32,30 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
             targetRevenue: parseInt(targetInput) || 150000
         };
         saveUserSettings(newSettings);
-        onBack();
+        saveUserApiKey(apiKeyInput.trim());
+        
+        setDialogConfig({
+            isOpen: true,
+            type: 'info',
+            title: 'Berhasil',
+            msg: 'Pengaturan dan API Key berhasil disimpan!',
+            action: onBack
+        });
     };
 
-    const handleResetShift = () => {
-        if (confirm("Reset kondisi tempur (Saldo/Bensin)? Anda harus input ulang dari awal.")) {
-            clearShiftState();
-            window.location.reload();
-        }
+    const confirmResetShift = () => {
+        setDialogConfig({
+            isOpen: true,
+            type: 'confirm',
+            title: 'Reset Total?',
+            msg: 'Anda akan menghapus data shift (Saldo/Bensin) saat ini. Anda harus input ulang dari nol.',
+            action: performReset
+        });
+    };
+
+    const performReset = () => {
+        clearShiftState();
+        window.location.reload();
     };
 
     const togglePref = (key: keyof UserSettings['preferences']) => {
@@ -80,11 +105,44 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
 
     return (
         <div className="pb-24 pt-4 px-4 space-y-6">
+            
+            <CustomDialog 
+                isOpen={dialogConfig.isOpen}
+                type={dialogConfig.type}
+                title={dialogConfig.title}
+                message={dialogConfig.msg}
+                onConfirm={() => {
+                    setDialogConfig(prev => ({ ...prev, isOpen: false }));
+                    if (dialogConfig.action) dialogConfig.action();
+                }}
+                onCancel={() => setDialogConfig(prev => ({ ...prev, isOpen: false }))}
+                confirmText={dialogConfig.type === 'confirm' ? 'Ya, Reset' : 'Oke'}
+            />
+
             <div className="flex items-center gap-3 mb-6">
                 <button onClick={onBack} className="p-2 rounded-full bg-gray-800 text-white">
                     <ArrowLeft size={20} />
                 </button>
                 <h2 className="text-xl font-bold text-white">Pengaturan Akun</h2>
+            </div>
+
+            {/* API KEY SETTING (NEW) */}
+            <div className="bg-[#1e1e1e] p-5 rounded-xl border border-gray-700">
+                <div className="flex items-center gap-2 mb-4 text-purple-400">
+                    <Key size={20} />
+                    <h3 className="font-bold uppercase text-sm">Google AI Studio Key</h3>
+                </div>
+                <p className="text-xs text-gray-500 mb-2">
+                    Agar "Strategi AI" berjalan lancar & gratis, masukkan API Key Anda sendiri dari 
+                    <span className="text-purple-400 font-bold"> aistudio.google.com</span>.
+                </p>
+                <input 
+                    type="text" 
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    placeholder="Tempel API Key disini..."
+                    className="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white text-xs font-mono focus:border-purple-500 focus:outline-none"
+                />
             </div>
 
             {/* Target Setting */}
@@ -142,7 +200,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
                     <Download size={20} />
                     <h3 className="font-bold uppercase text-sm">Backup & Restore Data</h3>
                 </div>
-                <p className="text-xs text-gray-500 mb-4">Penting! Simpan data Anda secara berkala agar tidak hilang saat ganti HP atau hapus cache.</p>
                 
                 <div className="grid grid-cols-2 gap-3">
                     <button 
@@ -150,12 +207,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
                         className="py-3 bg-gray-800 border border-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl flex flex-col items-center justify-center gap-1 text-xs"
                     >
                         <Download size={20} className="text-emerald-500" />
-                        BACKUP (DOWNLOAD)
+                        BACKUP
                     </button>
                     
                     <label className="py-3 bg-gray-800 border border-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl flex flex-col items-center justify-center gap-1 text-xs cursor-pointer relative overflow-hidden">
                         <Upload size={20} className="text-cyan-500" />
-                        RESTORE (UPLOAD)
+                        RESTORE
                         <input type="file" accept=".json" onChange={handleRestore} className="absolute inset-0 opacity-0 cursor-pointer" />
                     </label>
                 </div>
@@ -183,7 +240,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
                     </button>
                     
                     <button 
-                        onClick={handleResetShift}
+                        onClick={confirmResetShift}
                         className="w-full py-3 bg-red-900/20 border border-red-800 hover:bg-red-900/30 text-red-400 font-bold rounded-xl flex justify-center items-center gap-2 text-sm"
                     >
                         <AlertTriangle size={16} />

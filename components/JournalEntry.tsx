@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Hotspot, Transaction } from '../types';
 import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate } from '../utils';
-import { Save, MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, MicOff, Zap, Volume2 } from 'lucide-react';
+import { MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, Volume2, XCircle, MicOff } from 'lucide-react';
 import { addHotspot, addTransaction } from '../services/storage';
 import CustomDialog from './CustomDialog';
 
@@ -39,7 +39,8 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
   // Voice State
   const [isListening, setIsListening] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState<string>('Ketuk untuk Bicara'); // Feedback text
+  const [voiceStatus, setVoiceStatus] = useState<string>('Ketuk Mic untuk Input Suara');
+  const [transcriptPreview, setTranscriptPreview] = useState<string>('');
   const recognitionRef = useRef<any>(null);
 
   // Dialog State
@@ -70,7 +71,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   }, []);
 
   // ==========================================
-  // SMART VOICE PARSING ENGINE
+  // SMART VOICE PARSING ENGINE V2
   // ==========================================
   const toggleVoiceInput = () => {
       vibrate(20);
@@ -78,7 +79,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       const SpeechRecognition = windowObj.SpeechRecognition || windowObj.webkitSpeechRecognition;
 
       if (!SpeechRecognition) {
-          showAlert("Ups!", "Browser ini tidak mendukung fitur suara. Gunakan Chrome Ndan.");
+          showAlert("Ups!", "Browser ini tidak mendukung fitur suara. Gunakan Chrome atau browser bawaan Android terbaru.");
           return;
       }
 
@@ -94,30 +95,27 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       try {
           const recognition = new SpeechRecognition();
           recognition.lang = 'id-ID'; // Wajib Bahasa Indonesia
-          recognition.continuous = false; // Stop after one sentence
-          recognition.interimResults = true; // Show text while speaking
+          recognition.continuous = false; 
+          recognition.interimResults = true; 
 
           recognition.onstart = () => {
               setIsListening(true);
               setVoiceStatus("Mendengarkan...");
+              setTranscriptPreview("");
           };
 
           recognition.onend = () => {
               setIsListening(false);
-              // Reset status text after delay unless logic changed it
-              setTimeout(() => {
-                 if (!isListening) setVoiceStatus("Ketuk untuk Bicara");
-              }, 2000);
+              setVoiceStatus("Ketuk Mic untuk Input Suara");
           };
 
           recognition.onerror = (e: any) => { 
               console.error(e); 
               setIsListening(false);
               if (e.error === 'no-speech') {
-                  setVoiceStatus("Tidak ada suara...");
+                  setVoiceStatus("Tidak ada suara terdeteksi");
               } else if (e.error === 'not-allowed') {
                   showAlert("Izin Ditolak", "Izinkan akses mikrofon di pengaturan browser.");
-                  setVoiceStatus("Izin Mikrofon Ditolak");
               } else {
                   setVoiceStatus("Gagal. Coba lagi.");
               }
@@ -125,9 +123,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
           recognition.onresult = (event: any) => {
               const transcript = event.results[0][0].transcript.toLowerCase();
-              
-              // Visual feedback realtime
-              setVoiceStatus(`"${transcript}"`);
+              setTranscriptPreview(transcript);
 
               if (event.results[0].isFinal) {
                   parseVoiceCommand(transcript);
@@ -153,96 +149,121 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       setAlertConfig({ isOpen: true, title, msg });
   };
 
-  const parseVoiceCommand = (text: string) => {
-      vibrate([30, 50, 30]); // Haptic "Processing"
-      setVoiceStatus("Memproses...");
+  // --- LOGIC UTAMA PEMECAH KALIMAT ---
+  const parseVoiceCommand = (rawText: string) => {
+      vibrate([30, 50, 30]); 
+      setVoiceStatus("Memproses Cerdas...");
+      
+      let processingText = rawText;
 
-      // 1. Detect Money (Slang & Numeric)
+      // 1. EKSTRAKSI UANG (Money)
+      // Mencari pola: "15 ribu", "15rb", "15k", "goceng", dll.
+      // Kita cabut dari teks agar tidak mengganggu deteksi lokasi.
       const moneyMap: Record<string, number> = {
           'goceng': 5000, 'ceban': 10000, 'cenggo': 1500, 'noban': 20000, 
-          'goban': 50000, 'cepek': 100000, 'juta': 1000000,
-          'setengah juta': 500000
+          'goban': 50000, 'cepek': 100000, 'juta': 1000000, 'setengah juta': 500000
       };
 
       let amount = 0;
-      
-      // Regex "15 ribu", "20rb", "15000"
-      const digitMatch = text.match(/(\d+)\s*(ribu|rb|k|000)/);
-      const plainDigitMatch = text.match(/(\d+)/); // Fallback for just numbers like "15" (implies 15k in Ojol context)
+      let moneyMatched = false;
 
-      if (digitMatch) {
-          amount = parseInt(digitMatch[1]) * 1000;
-      } else {
-          // Check Slang
-          for (const [key, val] of Object.entries(moneyMap)) {
-              if (text.includes(key)) {
-                  amount = val;
-                  break;
-              }
+      // Cek Slang dulu
+      for (const [key, val] of Object.entries(moneyMap)) {
+          if (processingText.includes(key)) {
+              amount = val;
+              processingText = processingText.replace(key, ""); // Hapus dari kalimat
+              moneyMatched = true;
+              break;
           }
-          // Fallback: simple number logic (e.g., user says "dua puluh lima")
-          // Not implemented fully to avoid false positives with dates/addresses, 
-          // assuming users say "ribu" or use slang.
-          
-          if (amount === 0 && plainDigitMatch) {
-             const val = parseInt(plainDigitMatch[1]);
-             // Contextual guess: if val < 1000, likely meant thousands
-             amount = val < 1000 ? val * 1000 : val;
+      }
+
+      // Cek Pola Angka + Ribu
+      if (!moneyMatched) {
+          const digitMatch = processingText.match(/(\d+(?:[\.,]\d+)?)\s*(ribu|rb|k|000)/i);
+          if (digitMatch) {
+              // Bersihkan titik/koma jika ada (misal 1.5 ribu jarang, tapi 15 ribu umum)
+              const rawNum = digitMatch[1].replace(',', '.');
+              amount = parseFloat(rawNum) * 1000;
+              processingText = processingText.replace(digitMatch[0], ""); // Hapus
+              moneyMatched = true;
+          } else {
+              // Cek angka saja yang berdiri sendiri dan besar (asumsi user sebut "lima belas ribu" tapi STT nulis "15000")
+              const plainNumber = processingText.match(/\b(\d{4,})\b/); // Minimal 4 digit (1000+)
+              if (plainNumber) {
+                  amount = parseInt(plainNumber[1]);
+                  processingText = processingText.replace(plainNumber[0], "");
+              }
           }
       }
 
       if (amount > 0) setArgoRaw(formatCurrencyInput(amount.toString()));
 
-      // 2. Smart Service & App Detection
-      if (text.includes('maxim')) setAppSource('Maxim');
-      else if (text.includes('gojek') || text.includes('gofood') || text.includes('gosend')) setAppSource('Gojek');
-      else if (text.includes('grab')) setAppSource('Grab');
-      else if (text.includes('shopee')) setAppSource('Shopee');
-      else if (text.includes('indriver')) setAppSource('Indriver');
-
-      if (text.includes('food') || text.includes('makan') || text.includes('gacoan') || text.includes('kfc') || text.includes('mcd')) setServiceType('Food');
-      else if (text.includes('shop') || text.includes('belanja') || text.includes('mart') || text.includes('indo') || text.includes('alfa')) setServiceType('Shop');
-      else if (text.includes('send') || text.includes('paket') || text.includes('antar barang')) setServiceType('Send');
-      else if (text.includes('bike') || text.includes('ride') || text.includes('penumpang') || text.includes('orang') || text.includes('jemput')) setServiceType('Bike');
-
-      // 3. Location Extraction (Preposition Strategy)
-      // Mencari kata setelah "di", "ke", "dari"
-      let detectedLoc = "";
-      const prepositionMatch = text.match(/\b(di|ke|dari)\b\s+(.+)/i);
-      
-      if (prepositionMatch && prepositionMatch[2]) {
-          // Ambil segmen setelah preposisi
-          let segment = prepositionMatch[2];
-          
-          // Potong jika ketemu kata kunci harga/angka di belakang
-          // Contoh: "di Mie Gacoan lima belas ribu" -> "Mie Gacoan"
-          const splitByMoney = segment.split(/\b(\d+|ribu|rb|goceng|ceban|goban|cepek)\b/);
-          detectedLoc = splitByMoney[0].trim();
-      } else {
-          // Fallback: Pembersihan kata kunci manual
-          const removeWords = [
-              'dapat', 'orderan', 'di', 'ke', 'dari', 'seharga', 'tarif', 'ongkir', 'rupiah',
-              'maxim', 'gojek', 'grab', 'shopee', 'indriver', 'gofood', 'grabfood',
-              'ribu', 'rb', 'goceng', 'ceban', 'goban', 'cepek', 'noban',
-              'food', 'bike', 'send', 'shop', 'tunai', 'cash'
-          ];
-          let cleaned = text;
-          cleaned = cleaned.replace(/\d+/g, ''); // Hapus angka
-          removeWords.forEach(w => {
-              const regex = new RegExp(`\\b${w}\\b`, 'gi');
-              cleaned = cleaned.replace(regex, '');
-          });
-          detectedLoc = cleaned.replace(/\s+/g, ' ').trim();
+      // 2. EKSTRAKSI JARAK (Distance)
+      // Pola: "5 kilo", "5.2 km", "jarak 10"
+      const distMatch = processingText.match(/(\d+(?:[\.,]\d+)?)\s*(km|kilo|kilometer)/i);
+      if (distMatch) {
+          const distStr = distMatch[1].replace(',', '.');
+          setTripDist(distStr);
+          processingText = processingText.replace(distMatch[0], ""); // Hapus
       }
 
-      // Formatting Title Case
-      if (detectedLoc.length > 2) {
-          const formattedLoc = detectedLoc.toLowerCase().replace(/(?:^|\s)\S/g, a => a.toUpperCase());
+      // 3. EKSTRAKSI APLIKASI & LAYANAN
+      // Set state jika ketemu, lalu hapus kata kuncinya dari kalimat
+      if (processingText.includes('maxim')) { setAppSource('Maxim'); processingText = processingText.replace('maxim', ''); }
+      else if (processingText.includes('gojek') || processingText.includes('gofood')) { setAppSource('Gojek'); processingText = processingText.replace(/gojek|gofood|gosend/g, ''); }
+      else if (processingText.includes('grab')) { setAppSource('Grab'); processingText = processingText.replace(/grab|grabfood/g, ''); }
+      else if (processingText.includes('shopee')) { setAppSource('Shopee'); processingText = processingText.replace(/shopee|shopeefood/g, ''); }
+      else if (processingText.includes('indriver')) { setAppSource('Indriver'); processingText = processingText.replace('indriver', ''); }
+
+      if (processingText.includes('food') || processingText.includes('makan') || processingText.includes('gacoan')) { setServiceType('Food'); processingText = processingText.replace(/food|makan/g, ''); }
+      else if (processingText.includes('shop') || processingText.includes('belanja') || processingText.includes('mart')) { setServiceType('Shop'); processingText = processingText.replace(/shop|belanja|mart/g, ''); }
+      else if (processingText.includes('send') || processingText.includes('paket') || processingText.includes('antar') || processingText.includes('kirim')) { setServiceType('Send'); processingText = processingText.replace(/send|paket|antar|kirim|barang/g, ''); }
+      else if (processingText.includes('bike') || processingText.includes('ride') || processingText.includes('penumpang') || processingText.includes('orang') || processingText.includes('jemput')) { setServiceType('Bike'); processingText = processingText.replace(/bike|ride|penumpang|orang|jemput|motor/g, ''); }
+
+      // 4. MEMBERSIHKAN KATA SAMBUNG (FILLER)
+      // Hapus kata-kata tidak penting agar sisa kalimat murni Lokasi/Catatan
+      const fillers = ['dapat', 'orderan', 'seharga', 'tarif', 'ongkir', 'rupiah', 'tunai', 'cash', 'di', 'ke', 'dari', 'namanya'];
+      fillers.forEach(word => {
+          const regex = new RegExp(`\\b${word}\\b`, 'gi');
+          processingText = processingText.replace(regex, " ");
+      });
+
+      // 5. MEMISAHKAN LOKASI & CATATAN
+      // Sisanya sekarang kemungkinan besar adalah Lokasi.
+      // Tapi cek dulu apakah user bilang "catatan..."
+      let extractedLocation = "";
+      let extractedNotes = "";
+
+      if (processingText.includes("catatan")) {
+          const parts = processingText.split("catatan");
+          extractedLocation = parts[0].trim();
+          extractedNotes = parts[1].trim();
+      } else if (processingText.includes("note")) {
+          const parts = processingText.split("note");
+          extractedLocation = parts[0].trim();
+          extractedNotes = parts[1].trim();
+      } else {
+          // Tidak ada kata "catatan", berarti sisanya adalah Lokasi semua
+          extractedLocation = processingText.trim();
+      }
+
+      // Bersihkan spasi ganda & karakter aneh
+      extractedLocation = extractedLocation.replace(/\s+/g, ' ').replace(/[^\w\s]/gi, '').trim();
+      extractedNotes = extractedNotes.replace(/\s+/g, ' ').trim();
+
+      // Title Case untuk Lokasi (misal: "mie gacoan" -> "Mie Gacoan")
+      if (extractedLocation.length > 0) {
+          const formattedLoc = extractedLocation.toLowerCase().replace(/(?:^|\s)\S/g, a => a.toUpperCase());
           setOrigin(formattedLoc);
       }
+      
+      if (extractedNotes.length > 0) {
+          setNotes(extractedNotes);
+      }
 
-      setVoiceStatus("Berhasil!");
-      setTimeout(() => setVoiceStatus("Ketuk untuk Bicara"), 2000);
+      setTranscriptPreview(`Berhasil!`);
+      setTimeout(() => setTranscriptPreview(""), 3000);
+      setVoiceStatus("Ketuk Mic untuk Input Suara");
   };
 
   const handleArgoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -362,41 +383,47 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
       <form onSubmit={handleSubmit} className="space-y-6">
         
-        {/* VOICE INPUT BUTTON - REDESIGNED */}
+        {/* VOICE INPUT BUTTON - SMART & VISUAL */}
         <div className="relative group">
-            {/* Pulsing Rings Animation */}
+            {/* ACTIVE LISTENING VISUALIZER */}
             {isListening && (
                 <>
-                    <div className="absolute inset-0 bg-red-500 rounded-2xl animate-ping opacity-20"></div>
-                    <div className="absolute -inset-1 bg-red-500/20 rounded-3xl animate-pulse"></div>
+                    <div className="absolute inset-0 bg-red-600 rounded-2xl animate-ping opacity-30"></div>
+                    <div className="absolute -inset-1 bg-red-600/20 rounded-3xl animate-pulse blur-sm"></div>
                 </>
             )}
             
             <button 
                 type="button"
                 onClick={toggleVoiceInput}
-                className={`w-full py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all border-2 overflow-hidden relative shadow-xl z-10 ${isListening ? 'bg-red-600 text-white border-red-500 scale-[1.02]' : 'bg-[#222] text-cyan-400 border-gray-700 hover:border-cyan-500 hover:bg-[#2a2a2a]'}`}
+                className={`w-full py-6 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all border-2 overflow-hidden relative shadow-xl z-10 ${isListening ? 'bg-red-600 text-white border-red-500 scale-[1.02]' : 'bg-[#222] text-cyan-400 border-gray-700 hover:border-cyan-500 hover:bg-[#2a2a2a]'}`}
             >
-                {/* Visualizer Effect when listening */}
                 {isListening ? (
-                     <Volume2 size={24} className="animate-pulse" />
+                    <div className="flex items-center gap-2">
+                        <span className="flex gap-1 h-4 items-center">
+                            <span className="w-1 h-2 bg-white animate-[bounce_1s_infinite]"></span>
+                            <span className="w-1 h-4 bg-white animate-[bounce_1.2s_infinite]"></span>
+                            <span className="w-1 h-3 bg-white animate-[bounce_0.8s_infinite]"></span>
+                        </span>
+                        <span className="uppercase tracking-widest animate-pulse">MENDENGARKAN...</span>
+                    </div>
                 ) : (
-                     <Mic size={24} />
+                    <>
+                        <Mic size={24} />
+                        <span className="uppercase tracking-wide text-sm md:text-base">Input Suara (AI)</span>
+                    </>
                 )}
-                
-                <span className="relative z-10 uppercase tracking-wide text-sm md:text-base">
-                    {isListening ? 'Mendengarkan...' : 'Input Suara (AI)'}
-                </span>
             </button>
             
-            {/* Status Text & Hint */}
-            <div className={`mt-3 text-center transition-all duration-300 ${isListening ? 'opacity-100 transform translate-y-0' : 'opacity-70'}`}>
-                <p className={`text-xs font-bold ${isListening ? 'text-red-400 animate-pulse' : 'text-gray-500'}`}>
-                    {voiceStatus}
-                </p>
-                {!isListening && (
-                    <p className="text-[10px] text-gray-600 mt-1 italic">
-                        Contoh: "Dapat Gofood <span className="text-cyan-600 font-bold">di Mie Gacoan</span> dua puluh lima ribu"
+            {/* Status & Transcript Area */}
+            <div className={`mt-3 text-center transition-all duration-300 min-h-[40px] flex flex-col justify-center`}>
+                {transcriptPreview ? (
+                    <p className={`text-sm font-bold italic leading-tight animate-in fade-in slide-in-from-top-2 ${isListening ? 'text-white' : 'text-emerald-400'}`}>
+                        "{transcriptPreview}"
+                    </p>
+                ) : (
+                    <p className="text-[10px] text-gray-500 italic">
+                        Coba: "Dapat Gojek <span className="text-cyan-600 font-bold">di Trans Studio</span> lima puluh ribu, jarak 10 kilo"
                     </p>
                 )}
             </div>

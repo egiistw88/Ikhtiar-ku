@@ -1,10 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Bell, AlertTriangle, GripHorizontal } from 'lucide-react';
 import { getGarageData } from '../services/storage';
+import CustomDialog from './CustomDialog';
 
 const SOSButton: React.FC = () => {
   const [loading, setLoading] = useState(false);
   
+  // Dialog State Configuration
+  const [dialogConfig, setDialogConfig] = useState<{
+      isOpen: boolean;
+      type: 'confirm' | 'alert' | 'info';
+      title: string;
+      message: string;
+      action?: () => void;
+  }>({
+      isOpen: false,
+      type: 'alert',
+      title: '',
+      message: ''
+  });
+
   // State posisi (x, y)
   // Default: Kanan Atas (mirip posisi awal)
   const [pos, setPos] = useState({ x: window.innerWidth - 70, y: 80 });
@@ -40,14 +55,26 @@ const SOSButton: React.FC = () => {
 
     const garage = getGarageData();
     if (!garage.emergencyContact) {
-        alert("Nomor Darurat belum diset! Silakan atur di menu Garasi/Akun.");
+        setDialogConfig({
+            isOpen: true,
+            type: 'alert',
+            title: 'Kontak Belum Diset',
+            message: 'Silakan atur Nomor Darurat di menu Garasi/Akun terlebih dahulu.',
+            action: undefined
+        });
         return;
     }
 
-    if (!confirm("⚠️ KONFIRMASI DARURAT ⚠️\n\nKirim sinyal SOS dan lokasi ke kontak darurat?")) {
-        return;
-    }
+    setDialogConfig({
+        isOpen: true,
+        type: 'confirm',
+        title: '⚠️ DARURAT SOS',
+        message: 'Kirim lokasi & sinyal bantuan ke kontak darurat sekarang?',
+        action: () => executeSOS(garage.emergencyContact)
+    });
+  };
 
+  const executeSOS = (contact: string) => {
     setLoading(true);
 
     if (navigator.geolocation) {
@@ -57,19 +84,19 @@ const SOSButton: React.FC = () => {
                 const lng = pos.coords.longitude;
                 const mapsLink = `https://maps.google.com/?q=${lat},${lng}`;
                 const message = `TOLONG! Saya dalam kondisi darurat. Lokasi terakhir saya: ${mapsLink}`;
-                sendWhatsApp(garage.emergencyContact, message);
+                sendWhatsApp(contact, message);
                 setLoading(false);
             },
             (err) => {
                 const message = `TOLONG! Saya dalam kondisi darurat. (GPS Error)`;
-                sendWhatsApp(garage.emergencyContact, message);
+                sendWhatsApp(contact, message);
                 setLoading(false);
             },
             { enableHighAccuracy: true, timeout: 2500 }
         );
     } else {
         const message = `TOLONG! Saya dalam kondisi darurat. (No GPS Device)`;
-        sendWhatsApp(garage.emergencyContact, message);
+        sendWhatsApp(contact, message);
         setLoading(false);
     }
   };
@@ -137,40 +164,56 @@ const SOSButton: React.FC = () => {
   }, [isDragging]);
 
   return (
-    <div
-        style={{ 
-            left: pos.x, 
-            top: pos.y,
-            touchAction: 'none' // Mencegah scroll layar saat drag tombol
-        }}
-        className={`fixed z-[2000] flex flex-col items-center gap-1 transition-shadow ${isDragging ? 'opacity-80 scale-110' : ''}`}
-    >
-        {/* DRAG HANDLE VISUAL CUE */}
-        {isDragging && (
-             <div className="bg-white/20 px-2 py-0.5 rounded-full mb-1 animate-in fade-in">
-                 <GripHorizontal size={12} className="text-white" />
-             </div>
-        )}
-
-        <button
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-            onTouchEnd={handleEnd}
-            onMouseDown={onMouseDown}
-            onClick={handleSOS}
-            className={`flex items-center justify-center w-14 h-14 rounded-full shadow-xl shadow-red-900/60 border-4 border-red-500 bg-red-600 text-white active:scale-95 transition-transform ${loading ? 'opacity-70 cursor-wait' : isDragging ? 'cursor-grabbing' : 'animate-pulse hover:bg-red-500 cursor-grab'}`}
-            title="GESER UNTUK PINDAH, KLIK UNTUK SOS"
-        >
-            {loading ? <AlertTriangle size={24} className="animate-spin" /> : <Bell size={24} fill="currentColor" />}
-        </button>
+    <>
+        <CustomDialog 
+            isOpen={dialogConfig.isOpen}
+            type={dialogConfig.type}
+            title={dialogConfig.title}
+            message={dialogConfig.message}
+            onConfirm={() => {
+                setDialogConfig(prev => ({ ...prev, isOpen: false }));
+                if (dialogConfig.action) dialogConfig.action();
+            }}
+            onCancel={() => setDialogConfig(prev => ({ ...prev, isOpen: false }))}
+            confirmText={dialogConfig.type === 'confirm' ? 'KIRIM SOS!' : 'Oke'}
+            cancelText="Batal"
+        />
         
-        {/* Helper Text (Only shows when dragging starts or initially) */}
-        {!hasMoved.current && !loading && (
-             <span className="text-[8px] font-bold text-white/50 bg-black/40 px-1 rounded backdrop-blur-sm mt-1 pointer-events-none">
-                 GESER
-             </span>
-        )}
-    </div>
+        <div
+            style={{ 
+                left: pos.x, 
+                top: pos.y,
+                touchAction: 'none' // Mencegah scroll layar saat drag tombol
+            }}
+            className={`fixed z-[2000] flex flex-col items-center gap-1 transition-shadow ${isDragging ? 'opacity-80 scale-110' : ''}`}
+        >
+            {/* DRAG HANDLE VISUAL CUE */}
+            {isDragging && (
+                <div className="bg-white/20 px-2 py-0.5 rounded-full mb-1 animate-in fade-in">
+                    <GripHorizontal size={12} className="text-white" />
+                </div>
+            )}
+
+            <button
+                onTouchStart={onTouchStart}
+                onTouchMove={onTouchMove}
+                onTouchEnd={handleEnd}
+                onMouseDown={onMouseDown}
+                onClick={handleSOS}
+                className={`flex items-center justify-center w-14 h-14 rounded-full shadow-xl shadow-red-900/60 border-4 border-red-500 bg-red-600 text-white active:scale-95 transition-transform ${loading ? 'opacity-70 cursor-wait' : isDragging ? 'cursor-grabbing' : 'animate-pulse hover:bg-red-500 cursor-grab'}`}
+                title="GESER UNTUK PINDAH, KLIK UNTUK SOS"
+            >
+                {loading ? <AlertTriangle size={24} className="animate-spin" /> : <Bell size={24} fill="currentColor" />}
+            </button>
+            
+            {/* Helper Text (Only shows when dragging starts or initially) */}
+            {!hasMoved.current && !loading && (
+                <span className="text-[8px] font-bold text-white/50 bg-black/40 px-1 rounded backdrop-blur-sm mt-1 pointer-events-none">
+                    GESER
+                </span>
+            )}
+        </div>
+    </>
   );
 };
 

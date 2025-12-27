@@ -4,7 +4,7 @@ import { calculateDistance, getTimeDifference, vibrate } from '../utils';
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
 import { CATEGORY_COLORS } from '../constants';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, MapPin, Wrench, Power, AlertTriangle, CheckCircle, Battery, Zap, RefreshCw, Bot, Sparkles, X, Map } from 'lucide-react';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Disc, Power, Battery, Zap, RefreshCw, Sparkles, X, MapPin, Target } from 'lucide-react';
 
 interface RadarViewProps {
   hotspots: Hotspot[];
@@ -49,7 +49,7 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
     }
     const interval = setInterval(syncData, 30000); // Sync faster
     return () => clearInterval(interval);
-  }, [shiftState]); // Removed initialHotspots dependency to prevent loops
+  }, [shiftState]); 
 
   const syncData = () => {
         const freshHotspots = getHotspots();
@@ -107,7 +107,6 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
 
     // Filter Step 1: Valid & Preference Check
     let candidates = localHotspots.filter(h => {
-        // Remove validated 'Anyep' spots for today
         const bad = h.validations?.find(v => v.date === todayStr && !v.isAccurate);
         if (bad) return false;
         
@@ -272,31 +271,37 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
         </button>
       </div>
       
-      {/* AI STRATEGY BOX */}
+      {/* AI STRATEGY BOX (REDESIGNED MAXIM STYLE) */}
       <div className="relative">
         {!aiAdvice ? (
              <button 
                 onClick={handleAiAnalysis}
                 disabled={isAiLoading}
-                className={`w-full py-4 border rounded-2xl flex items-center justify-center gap-2 font-black text-sm shadow-lg transition-all active:scale-[0.98] ${isAiLoading ? 'bg-gray-800 border-gray-700 text-gray-400' : 'bg-gradient-to-r from-indigo-600 to-purple-600 border-indigo-400 text-white hover:brightness-110 shadow-indigo-900/50'}`}
+                className={`w-full py-4 border rounded-2xl flex items-center justify-center gap-2 font-black text-sm shadow-lg transition-all active:scale-[0.98] ${isAiLoading ? 'bg-gray-800 border-gray-700 text-gray-400' : 'bg-yellow-400 text-black border-yellow-500 hover:bg-yellow-300 shadow-yellow-400/20'}`}
             >
-                {isAiLoading ? <RefreshCw size={20} className="animate-spin" /> : <Sparkles size={20} className="text-yellow-200 fill-yellow-200" />}
-                {isAiLoading ? "MENGANALISIS DATA..." : "MINTA STRATEGI AI"}
+                {isAiLoading ? <RefreshCw size={20} className="animate-spin" /> : <Sparkles size={20} className="text-black" />}
+                {isAiLoading ? "MENGANALISIS..." : "ANALISA ORDERAN (AI)"}
             </button>
         ) : (
-            <div className="bg-gradient-to-br from-indigo-900/80 to-purple-900/80 border-2 border-indigo-500/50 rounded-2xl p-5 relative animate-in fade-in slide-in-from-top-4 shadow-2xl">
+            <div className="bg-gradient-to-br from-yellow-400/10 to-yellow-600/5 border border-yellow-500/50 rounded-2xl p-5 relative animate-in fade-in slide-in-from-top-4 shadow-lg shadow-yellow-900/10">
                 <div className="flex items-start gap-4">
-                    <div className="p-3 bg-indigo-500/20 rounded-xl text-indigo-300 border border-indigo-500/30">
-                        <Bot size={28} />
+                    {/* ICON BAN MOTOR MERAH DENGAN BACKGROUND KUNING */}
+                    <div className="flex-shrink-0 w-12 h-12 bg-app-primary rounded-xl flex items-center justify-center shadow-lg border border-yellow-300">
+                        <Disc size={28} className="text-red-600 animate-[spin_3s_linear_infinite]" strokeWidth={2.5} />
                     </div>
+                    
                     <div>
-                        <h4 className="font-bold text-indigo-300 text-xs uppercase mb-1 tracking-wider">STRATEGI JITU (AI)</h4>
-                        <p className="text-sm font-medium text-gray-100 leading-relaxed whitespace-pre-line">{aiAdvice}</p>
+                        <h4 className="font-black text-app-primary text-xs uppercase mb-1 tracking-wider flex items-center gap-1">
+                             <Target size={12}/> STRATEGI ORDERAN
+                        </h4>
+                        <p className="text-sm font-bold text-gray-200 leading-relaxed whitespace-pre-line tracking-wide">
+                            {aiAdvice}
+                        </p>
                     </div>
                 </div>
                 <button 
                     onClick={() => { setAiAdvice(null); vibrate(10); }}
-                    className="absolute top-3 right-3 p-2 bg-black/20 rounded-full text-gray-400 hover:text-white hover:bg-black/40 transition-colors"
+                    className="absolute top-2 right-2 p-2 bg-black/20 rounded-full text-gray-400 hover:text-white hover:bg-black/40 transition-colors"
                 >
                     <X size={14} />
                 </button>

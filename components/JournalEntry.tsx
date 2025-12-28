@@ -107,7 +107,10 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const argoVal = parseCurrencyInput(argoRaw);
-    if (!argoVal) { setAlert({show: true, msg: "Isi argo dulu Ndan."}); return; }
+    if (!argoVal || isNaN(argoVal) || argoVal <= 0) { 
+        setAlert({show: true, msg: "Nominal argo tidak valid, Ndan."}); 
+        return; 
+    }
 
     setIsSubmitting(true);
     vibrate(50);
@@ -132,6 +135,8 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
             type: `${serviceType} (${appSource})`,
             category, lat: coords.lat, lng: coords.lng, zone: 'User Entry',
             notes: `${notes} [${appSource}]`, isUserEntry: true,
+            isDaily: false, // User Entry defaults to specific date
+            baseScore: 100, // User Entry always high score
             validations: [{ date: currentTime.fullDate.toISOString().split('T')[0], isAccurate: true }]
         };
         addHotspot(newHotspot);

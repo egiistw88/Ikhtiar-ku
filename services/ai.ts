@@ -1,6 +1,6 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { Hotspot, DailyFinancial, ShiftState } from '../types';
-import { getTimeWindow } from '../utils';
 
 const API_STORAGE_KEY = 'ikhtiar_ku_api_key';
 
@@ -24,9 +24,21 @@ export const getUserApiKey = (): string => {
     return localStorage.getItem(API_STORAGE_KEY) || '';
 }
 
-// ALGORITMA LOKAL (FALLBACK)
-// Berjalan ketika API Key kosong atau Error. 
-// Menjamin driver selalu dapat saran konkrit.
+export const validateApiKey = async (key: string): Promise<{ success: boolean; message: string }> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey: key });
+        await ai.models.generateContent({
+            model: 'gemini-3-flash-preview', 
+            contents: 'Ping',
+        });
+        return { success: true, message: "Koneksi Berhasil! API Key Valid." };
+    } catch (error: any) {
+        console.error("API Validation Error:", error);
+        return { success: false, message: "Koneksi Gagal. Cek API Key." };
+    }
+}
+
+// STRATEGI LOKAL (FALLBACK)
 const generateLocalStrategy = (
     hotspots: Hotspot[], 
     financials: DailyFinancial | null,
@@ -34,87 +46,74 @@ const generateLocalStrategy = (
 ): string => {
     const now = new Date();
     const hour = now.getHours();
-    const timeWindow = getTimeWindow(hour);
-    let advice = "";
-    let location = "";
 
-    // 1. Cek Kondisi Kritis (Prioritas Utama)
     if (shift) {
-        if (shift.startBalance < 15000) return "⚠️ DARURAT: Saldo minim bikin akun anyep. Topup minimal 20rb biar orderan masuk lancar Ndan!";
-        if (shift.startFuel < 20) return "⛽ AWAS MOGOK: Isi bensin dulu Ndan. Jangan ambil orderan jauh sebelum indikator aman.";
+        if (shift.startBalance < 20000) return "Duh Ndan, saldo segitu mau narik apa mau sedekah? 😅 Topup dulu gih minimal ceban, biar akun gak gagu! Jangan lupa Bismillah.";
+        if (shift.startFuel < 15) return "Bensin kedip-kedip kok masih nekat? Isi dulu full tank Ndan. Rezeki gak bakal lari, tapi motor lu bisa mogok! ⛽";
     }
 
-    // 2. Analisa Waktu & Lokasi
-    const validSpots = hotspots.filter(h => h.time_window === timeWindow);
-    if (validSpots.length > 0) {
-        location = `Geser ke ${validSpots[0].origin} (${validSpots[0].category})`;
-    } else {
-        // Fallback lokasi umum berdasarkan jam jika tidak ada data history
-        if (hour >= 6 && hour < 10) location = "Ngetem di area Perumahan/Sekolah, banyak orderan berangkat.";
-        else if (hour >= 11 && hour < 14) location = "Merapat ke area Resto/Pusat Kuliner, jam makan siang (Food/Delivery).";
-        else if (hour >= 16 && hour < 19) location = "Standby di Stasiun atau Perkantoran, jam pulang kerja.";
-        else if (hour >= 19) location = "Cari spot Kuliner Malam atau Mall.";
-        else location = "Cari area 24 jam atau Pasar Induk.";
-    }
+    if (hour >= 5 && hour < 10) return "Masih pagi jangan bengong! Geser ke Perumahan sekarang. Orang berangkat kerja butuh tumpangan, bukan driver yang ngetem doang! 🚀";
+    if (hour >= 11 && hour < 14) return "Perut orang kantoran udah bunyi tuh. Merapat ke Pusat Kuliner/Mall sekarang! Orderan Food lagi deres, sikat Ndan! 🍔";
+    if (hour >= 16 && hour < 20) return "Jam pulang kerja Ndan! Standby di Stasiun atau Halte. Karyawan capek butuh tumpangan cepet, jangan kasih kendor! 🌧️";
+    if (hour >= 20) return "Malam minggu kelabu? Geser ke Kuliner Malam. Masih ada harapan orderan martabak atau mahasiswa laper. Gas! 🌙";
 
-    // 3. Analisa Keuangan
-    let moneyTalk = "";
-    if (financials) {
-        if (financials.netCash > 100000) moneyTalk = "Gacor! Target harian aman.";
-        else if (financials.netCash < 20000) moneyTalk = "Masih pagi/awal, semangat cari penglaris.";
-    }
-
-    return `Strategi Manual: ${location}. ${moneyTalk} Tetap fokus jalan, rezeki gak akan ketukar!`;
+    return "Anyep ya? Jangan diem aja kayak patung. Geser 500m ke arah keramaian. Rezeki harus dijemput, bukan ditungguin doang!";
 };
 
 export const generateDriverStrategy = async (
-    hotspots: Hotspot[], 
+    hotspots: any[], 
     financials: DailyFinancial | null,
-    shift: ShiftState | null
+    shift: ShiftState | null,
+    userLocation: { lat: number, lng: number } | null 
 ): Promise<string> => {
-    // 1. Coba Generate via AI (Jika Key Ada)
     try {
         const ai = getAiClient();
-        
-        // Jika tidak ada AI Client (Key kosong), langsung lempar ke Local Strategy
-        if (!ai) {
-            return generateLocalStrategy(hotspots, financials, shift);
-        }
+        if (!ai) return generateLocalStrategy(hotspots, financials, shift);
 
-        const model = 'gemini-2.5-flash-latest'; 
-        
-        const cleanHotspots = hotspots.slice(0, 3).map(h => ({
-            loc: h.origin,
-            cat: h.category,
-            jam: h.predicted_hour
-        }));
+        const model = 'gemini-3-flash-preview'; 
+        const now = new Date();
+        const timeStr = `${now.getHours()}:${now.getMinutes()}`;
 
-        const contextData = {
-            saldo: shift ? shift.startBalance : "Tidak diketahui",
-            bensin: shift ? `${shift.startFuel}%` : "Tidak diketahui",
-            pendapatan_hari_ini: financials ? financials.grossIncome : 0,
-            jam_sekarang: new Date().getHours(),
-            radar_terdekat: cleanHotspots
-        };
+        // Data Cleaning
+        const topSpots = hotspots.slice(0, 3).map(h => 
+            `${h.origin} (${h.category})`
+        ).join(', ');
+
+        const saldo = shift ? shift.startBalance : 0;
+        const bensin = shift ? shift.startFuel : 0;
+        const income = financials ? financials.grossIncome : 0;
+        const target = financials ? financials.target : 150000;
 
         const prompt = `
-            Act as "Senior Driver Maxim Indonesia".
-            Context: ${JSON.stringify(contextData)}
+            Bertindaklah sebagai "Korlap Ojol Senior" yang SARKAS, LUGAS, CEPLAS-CEPLOS, tapi SEBENARNYA PEDULI (Tough Love).
+
+            DATA LAPANGAN:
+            - Jam: ${timeStr}
+            - Saldo: Rp${saldo} (Aman > 30rb)
+            - Bensin: ${bensin}%
+            - Pendapatan: Rp${income} (Target Rp${target})
+            - Radar: ${topSpots || "Kosong"}
+
+            INSTRUKSI JAWABAN (WAJIB):
+            1. Buat hanya 2-3 kalimat pendek.
+            2. Kalimat 1: Sindir kondisinya (saldo tipis/pendapatan nol/bensin sekarat/masih ngetem).
+            3. Kalimat 2: Perintah tegas suruh geser ke lokasi spesifik (pilih dari data Radar atau logika jam).
+            4. Kalimat 3: Kalimat penutup penuh semangat/doa singkat.
+            5. GAYA BAHASA: Tongkrongan driver ("Ndan", "Lu", "Gass"). Jangan kaku.
+            6. PASTIKAN KALIMAT SELESAI (JANGAN TERPOTONG).
+
+            Contoh Output Bagus:
+            "Woy Ndan, ngopi mulu kapan kayanya? Saldo lu memprihatinkan tuh. Geser ke Mall PVJ sekarang, orderan Food lagi banjir disana. Sikat sebelum disamber orang, Gass! 🔥"
             
-            Berikan saran singkat (maksimal 2 kalimat) dengan gaya bahasa driver lapangan (Ndan/Gacor).
-            Fokus pada:
-            1. Kondisi saldo/bensin (ingatkan topup jika saldo < 30rb).
-            2. Rekomendasi 1 lokasi dari radar atau saran umum berdasarkan jam sekarang.
-            
-            JANGAN menyapa "Halo AI" atau basa-basi. Langsung to the point strategi.
+            JAWAB SEKARANG:
         `;
 
         const response = await ai.models.generateContent({
             model: model,
             contents: prompt,
             config: {
-                temperature: 0.7,
-                maxOutputTokens: 80,
+                temperature: 0.85, 
+                maxOutputTokens: 1000, // NAIKKAN JAUH AGAR TIDAK TERPOTONG
             }
         });
 
@@ -126,12 +125,11 @@ export const generateDriverStrategy = async (
         throw new Error("Empty Response");
 
     } catch (error: any) {
-        // 2. Jika AI Gagal (Error/Limit/Sinyal), Gunakan Local Strategy
-        console.log("Switching to Local Strategy due to:", error.message);
+        console.error("AI Error:", error);
         return generateLocalStrategy(hotspots, financials, shift);
     }
 };
 
 export const analyzeHotspotTrend = async (hotspots: Hotspot[]): Promise<string> => {
-    return "Analisis Trend Dimatikan (Hemat Kuota)";
+    return "Trend analysis disabled.";
 }

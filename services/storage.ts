@@ -1,3 +1,4 @@
+
 import { Hotspot, Transaction, DailyFinancial, GarageData, UserSettings, ShiftState } from '../types';
 import { INITIAL_DATA } from '../constants';
 import { getLocalDateString } from '../utils';
@@ -61,7 +62,8 @@ export const runDataHousekeeping = (forceAggressive: boolean = false): { cleaned
         // 2. CLEAN HOTSPOTS
         const currentHotspots = getHotspots();
         const validHotspots = currentHotspots.filter(h => {
-            if (!h.isUserEntry) return true; // Keep Seed Data
+            // Keep Seed Data / Recurring Data FOREVER
+            if (!h.isUserEntry || h.isDaily) return true;
 
             const entryDate = new Date(h.date).getTime();
             if (isNaN(entryDate)) return false;
@@ -98,9 +100,17 @@ export const getHotspots = (): Hotspot[] => {
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        // DATA SANITIZER / MIGRATION
+        // Memastikan data lama kompatibel dengan logika baru (isDaily, baseScore)
+        return parsed.map((h: any) => ({
+            ...h,
+            // Defaulting new fields if missing
+            isDaily: h.isDaily !== undefined ? h.isDaily : false,
+            baseScore: h.baseScore !== undefined ? h.baseScore : (h.isUserEntry ? 100 : 50)
+        }));
       }
     }
+    // Jika kosong, muat seed data baru
     safeSetItem(STORAGE_KEY, JSON.stringify(INITIAL_DATA));
     return INITIAL_DATA;
   } catch (error) {

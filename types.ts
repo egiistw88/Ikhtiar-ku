@@ -1,7 +1,7 @@
 
 export interface Hotspot {
   id: string;
-  date: string;
+  date: string; // ISO Date "YYYY-MM-DD" (Untuk user entry). Untuk Seed data, ini bisa diabaikan jika isDaily=true
   day: string; // Senin, Selasa, etc.
   time_window: string; // Pagi, Siang, Sore, Malam
   predicted_hour: string; // HH:mm
@@ -12,7 +12,9 @@ export interface Hotspot {
   lng: number;
   zone: string;
   notes: string;
-  isUserEntry?: boolean; // To distinguish user added vs seed data
+  isUserEntry?: boolean; // True jika ini inputan manual driver
+  isDaily?: boolean; // NEW: True jika ini pola harian (Stasiun, Mall, Pasar) yang tidak peduli hari apa
+  baseScore?: number; // NEW: Nilai popularitas bawaan (0-100)
   validations?: {
     date: string;
     isAccurate: boolean;

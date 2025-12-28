@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings } from '../types';
 import { getUserSettings, saveUserSettings, clearShiftState, createBackupString, restoreFromBackup, performFactoryReset, runDataHousekeeping } from '../services/storage';
-import { saveUserApiKey, getUserApiKey } from '../services/ai';
-import { ArrowLeft, Bike, Package, ShoppingBag, Coffee, Database, Trash2, Download, Upload, AlertTriangle, Key, Save } from 'lucide-react';
+import { saveUserApiKey, getUserApiKey, validateApiKey } from '../services/ai';
+import { ArrowLeft, Bike, Package, ShoppingBag, Coffee, Database, Trash2, Download, Upload, AlertTriangle, Key, Save, CheckCircle, Loader2, Wifi } from 'lucide-react';
 import CustomDialog from './CustomDialog';
 
 interface SettingsViewProps { onBack: () => void; onUpdateCondition: () => void; }
@@ -13,6 +13,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
     const [targetInput, setTargetInput] = useState<string>('');
     const [apiKeyInput, setApiKeyInput] = useState<string>('');
     const [dialog, setDialog] = useState<{isOpen: boolean, type: 'confirm'|'alert'|'info', title: string, msg: string, action?: () => void}>({ isOpen: false, type: 'info', title: '', msg: '' });
+    
+    // Testing State
+    const [isTestingKey, setIsTestingKey] = useState(false);
 
     useEffect(() => { setTargetInput(settings.targetRevenue.toString()); setApiKeyInput(getUserApiKey()); }, []);
 
@@ -20,6 +23,26 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
         saveUserSettings({ ...settings, targetRevenue: parseInt(targetInput) || 150000 });
         saveUserApiKey(apiKeyInput.trim());
         setDialog({ isOpen: true, type: 'info', title: 'Tersimpan', msg: 'Pengaturan berhasil diperbarui.', action: onBack });
+    };
+
+    const handleTestConnection = async () => {
+        if (!apiKeyInput.trim()) {
+            setDialog({ isOpen: true, type: 'alert', title: 'Kosong', msg: 'Masukkan API Key terlebih dahulu.' });
+            return;
+        }
+        setIsTestingKey(true);
+        // Simpan sementara untuk tes
+        saveUserApiKey(apiKeyInput.trim()); 
+        
+        const result = await validateApiKey(apiKeyInput.trim());
+        setIsTestingKey(false);
+
+        setDialog({
+            isOpen: true,
+            type: result.success ? 'info' : 'alert',
+            title: result.success ? 'Sukses' : 'Gagal',
+            msg: result.message
+        });
     };
 
     const togglePref = (key: keyof UserSettings['preferences']) => {
@@ -38,8 +61,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
             {/* AI KEY */}
             <div className="glass-panel p-5 rounded-3xl">
                 <div className="flex items-center gap-2 mb-3 text-purple-400 font-bold text-xs uppercase tracking-widest"><Key size={14}/> Google AI Studio Key</div>
-                <input type="text" value={apiKeyInput} onChange={e => setApiKeyInput(e.target.value)} placeholder="Paste API Key..." className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white text-xs font-mono mb-2" />
-                <p className="text-[10px] text-gray-500">Diperlukan untuk fitur "Strategi AI" yang akurat.</p>
+                
+                <div className="space-y-3">
+                    <input type="text" value={apiKeyInput} onChange={e => setApiKeyInput(e.target.value)} placeholder="Paste API Key..." className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white text-xs font-mono" />
+                    
+                    <button 
+                        onClick={handleTestConnection}
+                        disabled={isTestingKey}
+                        className="w-full py-2 bg-purple-900/30 border border-purple-500/30 rounded-xl text-purple-300 text-xs font-bold flex items-center justify-center gap-2 hover:bg-purple-900/50 transition-colors"
+                    >
+                        {isTestingKey ? <Loader2 size={14} className="animate-spin"/> : <Wifi size={14} />}
+                        {isTestingKey ? 'MENGHUBUNGKAN...' : 'CEK KONEKSI'}
+                    </button>
+                </div>
+                
+                <p className="text-[10px] text-gray-500 mt-2">Diperlukan untuk fitur "Strategi AI" yang akurat.</p>
             </div>
 
             {/* TARGET */}

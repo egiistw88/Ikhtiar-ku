@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect } from 'react';
 import { ViewState, TimeState, Hotspot, DailyFinancial, ShiftState } from './types';
 import { getCurrentTimeInfo, getLocalDateString, playSound } from './utils';
 import { getHotspots, getShiftState, runDataHousekeeping, getTodayFinancials, clearShiftState, saveShiftState } from './services/storage';
-import RadarView from './components/RadarView';
+import { RadarView } from './components/RadarView';
 import MapView from './components/MapView';
 import JournalEntry from './components/JournalEntry';
 import WalletView from './components/WalletView';
@@ -175,8 +174,8 @@ const App: React.FC = () => {
           </div>
       )}
 
-      {/* MAIN VIEWPORT - Added padding bottom for floating dock */}
-      <main className="flex-1 overflow-y-auto no-scrollbar pb-32 relative">
+      {/* MAIN VIEWPORT - Added EXTRA padding bottom for floating dock & safe area */}
+      <main className="flex-1 overflow-y-auto no-scrollbar pb-40 relative">
         {view === 'radar' && (
             <RadarView 
                 hotspots={hotspots} 
@@ -195,7 +194,7 @@ const App: React.FC = () => {
       </main>
 
       {/* FLOATING DOCK NAVIGATION */}
-      <div className="absolute bottom-6 left-0 right-0 flex justify-center z-50 pointer-events-none">
+      <div className="absolute bottom-6 left-0 right-0 flex justify-center z-50 pointer-events-none pb-safe">
           <nav className="bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-full px-6 py-3 flex items-center gap-6 shadow-[0_8px_32px_rgba(0,0,0,0.5)] pointer-events-auto">
             
             <NavButton 

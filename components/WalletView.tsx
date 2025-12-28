@@ -17,10 +17,8 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
     const [editingTxId, setEditingTxId] = useState<string | null>(null);
     
-    // Advisor State
     const [advisorTrigger, setAdvisorTrigger] = useState<{tx: Transaction, stats: DailyFinancial} | null>(null);
     
-    // Form Inputs
     const [amountRaw, setAmountRaw] = useState('');
     const [type, setType] = useState<'income' | 'expense'>('income');
     const [category, setCategory] = useState<string>('Trip');
@@ -41,7 +39,6 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
 
     const formatRupiah = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n);
 
-    // LOGIC TARGET
     const targetForecast = useMemo(() => {
         if (!summary) return null;
         const remaining = summary.target - summary.grossIncome;
@@ -57,7 +54,6 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
         };
     }, [summary, transactions]);
 
-    // QUICK ACTIONS
     const handleQuickAdd = (amount: number, cat: string, text: string) => {
         vibrate(20);
         const newTx: Transaction = {
@@ -152,7 +148,6 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
             
             {advisorTrigger && <FinancialAdvisor transaction={advisorTrigger.tx} dailyStats={advisorTrigger.stats} onClose={() => setAdvisorTrigger(null)} />}
 
-            {/* 1. WALLET CARD (CLEAN) */}
             <div className="bg-[#1a1a1a] rounded-3xl p-6 relative overflow-hidden border border-gray-800">
                 <div className="absolute -right-10 -top-10 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl"></div>
                 
@@ -189,7 +184,6 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                 )}
             </div>
 
-            {/* 2. BIG QUICK ACTIONS */}
             <div>
                 <h3 className="font-bold text-white mb-3 flex items-center gap-2">
                     <Zap size={18} className="text-app-primary" /> Aksi Cepat
@@ -219,7 +213,6 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                 </div>
             </div>
 
-            {/* 3. COMPACT HISTORY */}
             <div>
                 <h3 className="font-bold text-white mb-3">Riwayat</h3>
                 {transactions.length === 0 ? (
@@ -249,7 +242,6 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                 )}
             </div>
 
-            {/* MODAL (SIMPLIFIED) */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-[100] bg-black/90 flex items-end sm:items-center justify-center">
                     <div className="w-full max-w-md bg-[#161616] border-t border-gray-800 p-6 rounded-t-3xl sm:rounded-2xl max-h-[90vh] overflow-y-auto">
@@ -259,13 +251,11 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                         </div>
                         
                         <form onSubmit={handleSave} className="space-y-6">
-                            {/* Toggle Type */}
                             <div className="flex bg-black p-1 rounded-xl">
                                 <button type="button" onClick={() => setType('income')} className={`flex-1 py-3 rounded-lg font-bold text-sm ${type === 'income' ? 'bg-emerald-600 text-white' : 'text-gray-500'}`}>PEMASUKAN</button>
                                 <button type="button" onClick={() => setType('expense')} className={`flex-1 py-3 rounded-lg font-bold text-sm ${type === 'expense' ? 'bg-red-600 text-white' : 'text-gray-500'}`}>PENGELUARAN</button>
                             </div>
 
-                            {/* Amount */}
                             <div>
                                 <input 
                                     autoFocus={!editingTxId}
@@ -283,7 +273,6 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                                 </div>
                             </div>
 
-                            {/* Cash / Non Cash */}
                             <div className="grid grid-cols-2 gap-3">
                                 <button type="button" onClick={() => setIsCash(true)} className={`p-3 rounded-xl border flex items-center justify-center gap-2 font-bold text-xs ${isCash ? 'bg-emerald-900/30 border-emerald-500 text-emerald-400' : 'border-gray-700 text-gray-500'}`}>
                                     <Banknote size={16}/> TUNAI
@@ -293,7 +282,6 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
                                 </button>
                             </div>
 
-                            {/* Category & Note */}
                             <div className="space-y-3">
                                 <div>
                                     <label className="text-[10px] text-gray-500 uppercase font-bold">Kategori</label>

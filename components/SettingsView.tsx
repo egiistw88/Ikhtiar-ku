@@ -14,7 +14,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
     const [apiKeyInput, setApiKeyInput] = useState<string>('');
     const [dialog, setDialog] = useState<{isOpen: boolean, type: 'confirm'|'alert'|'info', title: string, msg: string, action?: () => void}>({ isOpen: false, type: 'info', title: '', msg: '' });
     
-    // Testing State
     const [isTestingKey, setIsTestingKey] = useState(false);
 
     useEffect(() => { setTargetInput(settings.targetRevenue.toString()); setApiKeyInput(getUserApiKey()); }, []);
@@ -31,7 +30,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
             return;
         }
         setIsTestingKey(true);
-        // Simpan sementara untuk tes
         saveUserApiKey(apiKeyInput.trim()); 
         
         const result = await validateApiKey(apiKeyInput.trim());
@@ -58,7 +56,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
                 <h1 className="text-2xl font-black text-white uppercase">Pengaturan</h1>
             </div>
 
-            {/* AI KEY */}
             <div className="glass-panel p-5 rounded-3xl">
                 <div className="flex items-center gap-2 mb-3 text-purple-400 font-bold text-xs uppercase tracking-widest"><Key size={14}/> Google AI Studio Key</div>
                 
@@ -78,13 +75,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
                 <p className="text-[10px] text-gray-500 mt-2">Diperlukan untuk fitur "Strategi AI" yang akurat.</p>
             </div>
 
-            {/* TARGET */}
             <div className="glass-panel p-5 rounded-3xl">
                 <div className="flex items-center gap-2 mb-3 text-emerald-400 font-bold text-xs uppercase tracking-widest">Target Harian (Rp)</div>
                 <input type="number" value={targetInput} onChange={e => setTargetInput(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white text-2xl font-black font-mono" />
             </div>
 
-            {/* FILTERS */}
             <div className="glass-panel p-5 rounded-3xl space-y-2">
                 <div className="mb-3 text-gray-400 font-bold text-xs uppercase tracking-widest">Filter Radar</div>
                 <Toggle icon={<Bike size={16}/>} label="Bike" active={settings.preferences.showBike} onClick={() => togglePref('showBike')} />
@@ -93,7 +88,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onUpdateCondition }
                 <Toggle icon={<ShoppingBag size={16}/>} label="Shop" active={settings.preferences.showShop} onClick={() => togglePref('showShop')} />
             </div>
 
-            {/* ACTIONS */}
             <div className="glass-panel p-5 rounded-3xl space-y-3">
                 <div className="mb-2 text-app-primary font-bold text-xs uppercase tracking-widest">Maintenance Data</div>
                 <button onClick={() => { runDataHousekeeping(); setDialog({isOpen:true, type:'info', title:'Sukses', msg:'Sampah data dibersihkan.'}); }} className="w-full py-3 rounded-xl bg-blue-900/20 text-blue-400 text-xs font-bold border border-blue-800/50 flex items-center justify-center gap-2"><Database size={14}/> BERSIHKAN CACHE</button>

@@ -6,27 +6,22 @@ import { vibrate, playSound } from '../utils';
 import { Shield, Wrench, Save, Disc, CalendarClock, Settings, Activity, Thermometer, AlertOctagon, RefreshCw, Phone, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import CustomDialog from './CustomDialog';
 
-// --- SUB-COMPONENT: CIRCULAR GAUGE (VISUALLY PERFECTED) ---
 const HealthGauge = ({ percentage, label, icon, colorClass, status, subStatus }: { percentage: number, label: string, icon: React.ReactNode, colorClass: string, status: string, subStatus?: string }) => {
-    // Safety clamp
     const safePercent = Math.min(Math.max(percentage, 0), 100);
     
-    // SVG CONFIG
     const size = 80;
-    const strokeWidth = 8; // Lebih tebal dikit biar solid
+    const strokeWidth = 8;
     const center = size / 2;
-    const radius = (size - strokeWidth) / 2; // Radius disesuaikan agar stroke tidak terpotong
+    const radius = (size - strokeWidth) / 2; 
     const circumference = 2 * Math.PI * radius;
     const strokeDashoffset = circumference - (safePercent / 100) * circumference;
 
     return (
         <div className="flex flex-col items-center justify-center w-full h-full py-2">
             <div className="relative flex items-center justify-center">
-                {/* Glow Effect di belakang Gauge */}
                 <div className={`absolute inset-0 rounded-full blur-xl opacity-20 ${colorClass.replace('text-', 'bg-')}`}></div>
 
                 <svg width={size} height={size} className="transform -rotate-90 overflow-visible relative z-10">
-                    {/* Track Background */}
                     <circle 
                         cx={center} cy={center} r={radius} 
                         stroke="#2a2a2a" 
@@ -34,7 +29,6 @@ const HealthGauge = ({ percentage, label, icon, colorClass, status, subStatus }:
                         fill="transparent" 
                         strokeLinecap="round"
                     />
-                    {/* Progress Indicator */}
                     <circle 
                         cx={center} cy={center} r={radius} 
                         stroke="currentColor" 
@@ -47,13 +41,11 @@ const HealthGauge = ({ percentage, label, icon, colorClass, status, subStatus }:
                     />
                 </svg>
                 
-                {/* Icon in Center */}
                 <div className="absolute inset-0 flex items-center justify-center text-gray-500 z-20">
                     {icon}
                 </div>
             </div>
 
-            {/* Labels */}
             <div className="mt-3 text-center w-full relative z-10">
                 <span className={`text-[10px] font-black uppercase tracking-wider block ${colorClass}`}>{label}</span>
                 <span className="text-xs text-white font-mono font-bold block mt-0.5">{status}</span>
@@ -63,7 +55,6 @@ const HealthGauge = ({ percentage, label, icon, colorClass, status, subStatus }:
     );
 };
 
-// --- SUB-COMPONENT: DOCUMENT CARD ---
 const DocCard = ({ title, dateStr, icon }: { title: string, dateStr: string, icon: React.ReactNode }) => {
     const calculation = useMemo(() => {
         if (!dateStr) return { days: null, status: 'UNSET', color: 'bg-gray-800 border-gray-700' };
@@ -123,7 +114,6 @@ const GarageView: React.FC = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [formData, setFormData] = useState<GarageData>(getGarageData());
     
-    // Quick Reset Dialog
     const [resetType, setResetType] = useState<'OIL' | 'TIRE' | 'PART' | null>(null);
 
     useEffect(() => {
@@ -169,7 +159,6 @@ const GarageView: React.FC = () => {
         setResetType(null);
     };
 
-    // --- CALCULATIONS ---
     const kmSinceOil = Math.max(0, data.currentOdometer - data.lastOilChangeKm);
     const oilLife = Math.max(0, 100 - (kmSinceOil / (data.serviceInterval || 2000) * 100));
     
@@ -203,7 +192,6 @@ const GarageView: React.FC = () => {
                 onCancel={() => setResetType(null)}
             />
 
-            {/* HEADER */}
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-2">
@@ -233,11 +221,9 @@ const GarageView: React.FC = () => {
                 </button>
             </div>
 
-            {/* 1. HERO DASHBOARD */}
             <div className="relative bg-[#1a1a1a] rounded-3xl p-6 border border-gray-800 overflow-hidden shadow-2xl group">
                 <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:20px_20px] opacity-50 pointer-events-none"></div>
                 
-                {/* Status Light */}
                 <div className={`absolute -top-10 -right-10 w-40 h-40 rounded-full blur-[80px] opacity-20 transition-colors duration-1000 ${kmToService < 0 ? 'bg-red-500' : estCost > 0 ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
 
                 <div className="relative z-10 text-center">
@@ -262,7 +248,6 @@ const GarageView: React.FC = () => {
                         </h2>
                     )}
                     
-                    {/* Status Bar */}
                     <div className="mt-8 grid grid-cols-2 gap-4">
                         <div className={`px-4 py-3 rounded-2xl border backdrop-blur-sm transition-colors ${kmToService < 200 ? 'bg-red-900/20 border-red-500/50' : 'bg-black/40 border-white/5'}`}>
                             <span className="block text-[9px] text-gray-400 uppercase font-bold tracking-wider mb-1">Servis Berikutnya</span>
@@ -280,10 +265,8 @@ const GarageView: React.FC = () => {
                 </div>
             </div>
 
-            {/* 2. LIVE MONITORING (GAUGES) - NOW PERFECTLY ALIGNED */}
             <div className="grid grid-cols-3 gap-3">
                 
-                {/* OLI MESIN */}
                 <div className="aspect-[3/4] bg-[#1a1a1a] rounded-3xl p-3 border border-gray-800 relative group transition-colors hover:border-gray-700">
                     <HealthGauge 
                         percentage={oilLife} 
@@ -300,7 +283,6 @@ const GarageView: React.FC = () => {
                     )}
                 </div>
 
-                {/* BAN */}
                 <div className="aspect-[3/4] bg-[#1a1a1a] rounded-3xl p-3 border border-gray-800 relative group transition-colors hover:border-gray-700">
                     <HealthGauge 
                         percentage={tireLife} 
@@ -317,7 +299,6 @@ const GarageView: React.FC = () => {
                     )}
                 </div>
 
-                {/* SPAREPART */}
                 <div className="aspect-[3/4] bg-[#1a1a1a] rounded-3xl p-3 border border-gray-800 relative group transition-colors hover:border-gray-700">
                     <HealthGauge 
                         percentage={partLife} 
@@ -335,7 +316,6 @@ const GarageView: React.FC = () => {
                 </div>
             </div>
 
-            {/* Editing Inputs Overlay inside grid (Optional logic if needed, but current form below is safer) */}
             {isEditing && (
                  <div className="bg-[#1a1a1a] p-5 rounded-3xl border border-gray-800 space-y-4 animate-in fade-in">
                     <h3 className="text-xs font-bold text-app-primary uppercase tracking-widest mb-2 flex items-center gap-2"><Settings size={14}/> Setup Interval Servis</h3>
@@ -356,7 +336,6 @@ const GarageView: React.FC = () => {
                 </div>
             )}
 
-            {/* 3. LEGAL & ADMIN (SURAT-SURAT) */}
             <div>
                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                     <Shield size={14} /> Dokumen & Legalitas
@@ -382,7 +361,6 @@ const GarageView: React.FC = () => {
                 </div>
             </div>
 
-            {/* 4. EMERGENCY SETUP */}
             <div className={`p-5 rounded-3xl border-l-4 transition-colors ${isEditing ? 'bg-gray-900 border-gray-600' : !data.emergencyContact ? 'bg-red-900/10 border-red-500' : 'bg-[#1a1a1a] border-emerald-500'}`}>
                 <div className="flex justify-between items-start">
                     <div>

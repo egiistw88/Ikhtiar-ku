@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { ViewState, TimeState, Hotspot, DailyFinancial, ShiftState } from './types';
 import { getCurrentTimeInfo, getLocalDateString, playSound } from './utils';
@@ -153,7 +154,7 @@ const App: React.FC = () => {
   if (view === 'summary') return <ShiftSummary financials={summaryData?.finance || null} onClose={handleCloseSummary} />;
 
   return (
-    <div className="h-[100dvh] w-full flex flex-col bg-app-bg text-app-text relative overflow-hidden">
+    <div className="h-[100dvh] w-full flex flex-col bg-black text-gray-100 relative overflow-hidden font-sans">
       
       {/* REST MODE OVERLAY (High Z-Index) */}
       {isResting && shiftState?.restData && (
@@ -166,16 +167,16 @@ const App: React.FC = () => {
 
       <SOSButton />
 
-      {/* GLOBAL TOAST NOTIFICATION - BOTTOM POSITION */}
+      {/* GLOBAL TOAST NOTIFICATION */}
       {toastMessage && (
-          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[2000] bg-emerald-600 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 animate-in slide-in-from-bottom-4 fade-in duration-300 w-max max-w-[90%] border border-emerald-400/50">
-              <CheckCircle size={18} className="text-white fill-emerald-800" />
-              <span className="font-bold text-sm drop-shadow-md">{toastMessage}</span>
+          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[2000] bg-emerald-600/90 backdrop-blur-md text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 w-[90%] max-w-sm border border-emerald-400/30">
+              <div className="bg-white/20 p-1 rounded-full"><CheckCircle size={18} className="text-white" /></div>
+              <span className="font-bold text-sm leading-snug">{toastMessage}</span>
           </div>
       )}
 
-      {/* MAIN VIEWPORT */}
-      <main className="flex-1 overflow-y-auto no-scrollbar pb-[100px] relative">
+      {/* MAIN VIEWPORT - Added padding bottom for floating dock */}
+      <main className="flex-1 overflow-y-auto no-scrollbar pb-32 relative">
         {view === 'radar' && (
             <RadarView 
                 hotspots={hotspots} 
@@ -188,52 +189,52 @@ const App: React.FC = () => {
             />
         )}
         {view === 'map' && <MapView hotspots={hotspots} currentTime={currentTime} />}
-        {view === 'journal' && <JournalEntry currentTime={currentTime} onSaved={() => { handleRefreshData(); showToast("Data Berhasil Disimpan!"); }} />}
+        {view === 'journal' && <JournalEntry currentTime={currentTime} onSaved={() => { handleRefreshData(); showToast("Data Disimpan!"); }} />}
         {view === 'wallet' && <WalletView onToast={showToast} />}
         {view === 'garage' && <GarageView />}
       </main>
 
-      {/* BOTTOM NAVIGATION (Fixed) */}
-      <nav className="absolute bottom-0 left-0 w-full h-[85px] bg-app-card/95 backdrop-blur-lg border-t border-app-border flex justify-around items-end pb-safe pb-3 z-50 shadow-bottom-nav">
-        
-        <NavButton 
-            active={view === 'radar'} 
-            onClick={() => setView('radar')} 
-            icon={<Radar size={24} />} 
-            label="Radar" 
-        />
-        
-        <NavButton 
-            active={view === 'wallet'} 
-            onClick={() => setView('wallet')} 
-            icon={<Wallet size={24} />} 
-            label="Dompet" 
-        />
+      {/* FLOATING DOCK NAVIGATION */}
+      <div className="absolute bottom-6 left-0 right-0 flex justify-center z-50 pointer-events-none">
+          <nav className="bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-full px-6 py-3 flex items-center gap-6 shadow-[0_8px_32px_rgba(0,0,0,0.5)] pointer-events-auto">
+            
+            <NavButton 
+                active={view === 'radar'} 
+                onClick={() => setView('radar')} 
+                icon={<Radar size={22} />} 
+                label="Radar" 
+            />
+            
+            <NavButton 
+                active={view === 'wallet'} 
+                onClick={() => setView('wallet')} 
+                icon={<Wallet size={22} />} 
+                label="Dompet" 
+            />
 
-        {/* CENTER ACTION BUTTON */}
-        <div className="relative -top-5">
-             <button 
+            {/* MAIN ACTION BUTTON */}
+            <button 
                 onClick={() => setView('journal')}
-                className={`w-16 h-16 rounded-full flex items-center justify-center shadow-glow transition-all active:scale-90 ${view === 'journal' ? 'bg-app-primary text-black scale-110' : 'bg-app-accent text-white'}`}
+                className={`w-14 h-14 -mt-8 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${view === 'journal' ? 'bg-app-primary text-black ring-4 ring-black scale-110' : 'bg-app-primary text-black ring-4 ring-[#1a1a1a]'}`}
             >
-                <Plus size={32} strokeWidth={3} />
-             </button>
-        </div>
+                <Plus size={28} strokeWidth={3} />
+            </button>
 
-        <NavButton 
-            active={view === 'map'} 
-            onClick={() => setView('map')} 
-            icon={<MapIcon size={24} />} 
-            label="Peta" 
-        />
-        
-        <NavButton 
-            active={view === 'garage'} 
-            onClick={() => setView('garage')} 
-            icon={<Shield size={24} />} 
-            label="Akun" 
-        />
-      </nav>
+            <NavButton 
+                active={view === 'map'} 
+                onClick={() => setView('map')} 
+                icon={<MapIcon size={22} />} 
+                label="Peta" 
+            />
+            
+            <NavButton 
+                active={view === 'garage'} 
+                onClick={() => setView('garage')} 
+                icon={<Shield size={22} />} 
+                label="Akun" 
+            />
+          </nav>
+      </div>
     </div>
   );
 };
@@ -241,15 +242,15 @@ const App: React.FC = () => {
 const NavButton: React.FC<{ active: boolean; onClick: () => void; icon: React.ReactNode; label: string }> = ({ active, onClick, icon, label }) => (
     <button 
         onClick={onClick}
-        className={`flex flex-col items-center justify-center w-16 h-14 gap-1 transition-colors ${active ? 'text-app-primary' : 'text-gray-500 hover:text-gray-300'}`}
+        className={`flex flex-col items-center justify-center w-10 gap-1 transition-all ${active ? 'text-app-primary' : 'text-gray-500 hover:text-gray-300'}`}
     >
-        <div className={`${active ? 'scale-110' : ''} transition-transform duration-200`}>
+        <div className={`transition-transform duration-200 ${active ? '-translate-y-1' : ''}`}>
             {React.cloneElement(icon as React.ReactElement, { 
                 fill: active ? 'currentColor' : 'none', 
-                strokeWidth: active ? 2 : 2 
+                strokeWidth: active ? 2.5 : 2 
             })}
         </div>
-        <span className="text-[10px] font-bold uppercase tracking-tight">{label}</span>
+        {active && <div className="w-1 h-1 bg-app-primary rounded-full animate-in zoom-in"></div>}
     </button>
 );
 

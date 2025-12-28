@@ -1,11 +1,11 @@
+
 import React, { useMemo, useState, useEffect } from 'react';
 import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftState } from '../types';
 import { calculateDistance, getTimeDifference, vibrate, playSound } from '../utils';
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
 import { CATEGORY_COLORS } from '../constants';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Disc, Power, Battery, Zap, RefreshCw, Sparkles, X, MapPin, Target, Loader2, Utensils, Bike, Package, ShoppingBag, Layers, Coffee, Moon } from 'lucide-react';
-import CustomDialog from './CustomDialog';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, MapPin, Target, Utensils, Bike, Package, Layers, ArrowRight, Skull } from 'lucide-react';
 
 interface RadarViewProps {
   hotspots: Hotspot[];
@@ -85,8 +85,8 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
           syncData();
           setIsScanning(false);
           playSound('success');
-          onToast("Radar berhasil diperbarui!");
-      }, 1000);
+          onToast("Radar diperbarui");
+      }, 800);
   };
 
   const handleAiAnalysis = async () => {
@@ -218,270 +218,224 @@ const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, curren
   }, [localHotspots, currentTime, isRainMode, financials, userLocation, gpsReady, shiftState, settings, quickFilter]);
 
   const progress = Math.min(100, Math.round(((financials?.netCash || 0) / settings.targetRevenue) * 100));
-  const statusColor = shiftState?.status === 'CRITICAL' ? 'bg-red-500' : shiftState?.status === 'WARNING' ? 'bg-amber-500' : 'bg-emerald-500';
 
   const FilterChip = ({ type, label, icon }: { type: QuickFilterType, label: string, icon: React.ReactNode }) => (
       <button 
         onClick={() => handleQuickFilter(type)}
-        className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${quickFilter === type ? 'bg-white text-black border-white shadow-glow' : 'bg-[#1e1e1e] text-gray-400 border-gray-700 hover:bg-gray-800'}`}
+        className={`px-4 py-3 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border ${quickFilter === type ? 'bg-white text-black border-white shadow-lg scale-105' : 'bg-[#1a1a1a] text-gray-400 border-transparent hover:bg-[#222]'}`}
       >
           {icon} {label}
       </button>
   );
 
   return (
-    <div className="pt-4 px-4 space-y-6">
+    <div className="pt-6 px-4 space-y-8">
       
-      {/* POWER MENU DIALOG */}
+      {/* POWER MENU MODAL */}
       {showPowerMenu && (
           <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-              <div className="bg-[#1e1e1e] border border-gray-700 w-full max-w-sm rounded-2xl p-6 shadow-2xl relative animate-in slide-in-from-bottom-10">
+              <div className="bg-[#1a1a1a] border border-gray-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative animate-in slide-in-from-bottom-10">
                   <div className="flex justify-between items-center mb-6">
-                      <h3 className="text-xl font-black text-white uppercase">Mau Ngapain Ndan?</h3>
+                      <h3 className="text-xl font-black text-white uppercase">Menu Istirahat</h3>
                       <button onClick={() => setShowPowerMenu(false)} className="p-2 bg-gray-800 rounded-full"><X size={18} className="text-gray-400"/></button>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-3">
                        <button 
                             onClick={() => { setShowPowerMenu(false); onRequestRest(); }}
-                            className="bg-gray-800 border border-gray-600 hover:bg-gray-700 p-4 rounded-xl flex flex-col items-center gap-2 group transition-all active:scale-95"
+                            className="w-full bg-blue-900/20 border border-blue-800 hover:bg-blue-900/30 p-5 rounded-2xl flex items-center gap-4 transition-all"
                         >
-                            <div className="w-12 h-12 rounded-full bg-blue-900/30 flex items-center justify-center group-hover:bg-blue-900/50">
-                                <Coffee size={24} className="text-blue-400" />
+                            <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-black font-bold">
+                                <Battery size={20} />
                             </div>
-                            <span className="text-sm font-bold text-gray-200">Istirahat Dulu</span>
+                            <div className="text-left">
+                                <span className="block text-white font-bold text-lg">Mode Istirahat</span>
+                                <span className="text-xs text-blue-300">Pause radar & hitung waktu rehat</span>
+                            </div>
                         </button>
 
                         <button 
                             onClick={() => { setShowPowerMenu(false); onOpenSummary(financials); }}
-                            className="bg-gray-800 border border-gray-600 hover:bg-gray-700 p-4 rounded-xl flex flex-col items-center gap-2 group transition-all active:scale-95"
+                            className="w-full bg-red-900/20 border border-red-800 hover:bg-red-900/30 p-5 rounded-2xl flex items-center gap-4 transition-all"
                         >
-                            <div className="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center group-hover:bg-red-900/50">
-                                <Power size={24} className="text-red-400" />
+                            <div className="w-10 h-10 rounded-full bg-red-500 flex items-center justify-center text-black font-bold">
+                                <Power size={20} />
                             </div>
-                            <span className="text-sm font-bold text-gray-200">Tutup Buku</span>
+                            <div className="text-left">
+                                <span className="block text-white font-bold text-lg">Tutup Buku</span>
+                                <span className="text-xs text-red-300">Akhiri shift hari ini & lihat laporan</span>
+                            </div>
                         </button>
                   </div>
               </div>
           </div>
       )}
 
-      {/* 1. DASHBOARD HEADER */}
-      <div className="relative bg-app-card rounded-3xl p-5 border border-app-border overflow-hidden shadow-lg">
-        <div className={`absolute top-0 right-0 w-40 h-40 blur-[80px] rounded-full opacity-20 transition-colors duration-1000 ${progress >= 100 ? 'bg-emerald-400' : 'bg-app-primary'}`}></div>
-        
-        <div className="flex justify-between items-start mb-6">
-            <div>
-                <div className="flex items-baseline gap-2">
-                     <h1 className="text-4xl font-black text-white tracking-tighter">{currentTime.timeString}</h1>
-                     <span className="text-xs font-bold text-gray-500 uppercase">{currentTime.dayName}</span>
-                </div>
-            </div>
-            
-            <div className="flex gap-2 relative z-10">
+      {/* 1. CLEAN HEADER */}
+      <div className="flex justify-between items-end">
+          <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">{currentTime.dayName}</p>
+              <h1 className="text-5xl font-black text-white tracking-tighter leading-none">{currentTime.timeString}</h1>
+          </div>
+          <div className="flex gap-3">
                 <button 
                     onClick={() => { setIsRainMode(!isRainMode); vibrate(10); playSound('click'); }}
-                    className={`p-3 rounded-2xl transition-all active:scale-95 ${isRainMode ? 'bg-blue-600 text-white shadow-glow ring-2 ring-blue-400' : 'bg-[#222] text-gray-400 border border-gray-700'}`}
+                    className={`p-3 rounded-full transition-all ${isRainMode ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'bg-[#1a1a1a] text-gray-500'}`}
                 >
-                    {isRainMode ? <CloudRain size={20} className="animate-bounce" /> : <Sun size={20} />}
+                    {isRainMode ? <CloudRain size={24} /> : <Sun size={24} />}
                 </button>
-                <button onClick={() => { onOpenSettings(); playSound('click'); }} className="p-3 rounded-2xl bg-[#222] border border-gray-700 text-gray-400 hover:text-white transition-colors">
-                    <Settings size={20} />
-                </button>
-            </div>
-        </div>
-
-        {/* STATUS & FATIGUE */}
-        <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-[#000]/60 backdrop-blur-sm rounded-xl p-3 border border-gray-800 flex flex-col justify-center">
-                <div className="flex items-center gap-2 mb-1">
-                    <div className={`w-2 h-2 rounded-full ${statusColor} animate-pulse`}></div>
-                    <span className="text-[10px] text-gray-400 font-bold uppercase">Kondisi Modal</span>
-                </div>
-                <p className={`text-xs font-bold leading-tight ${shiftState?.status === 'SAFE' ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    {shiftState?.status === 'SAFE' ? 'Aman Terkendali' : (shiftState?.startBalance < 10000 ? 'Saldo Kritis!' : 'Perlu Perhatian')}
-                </p>
-            </div>
-
-            <div className={`bg-[#000]/60 backdrop-blur-sm rounded-xl p-3 border border-gray-800 flex flex-col justify-center ${timeOnline > 8 ? 'border-red-500/50' : ''}`}>
-                 <div className="flex items-center gap-2 mb-1">
-                    <Battery size={10} className={timeOnline > 8 ? 'text-red-500' : 'text-app-primary'} />
-                    <span className="text-[10px] text-gray-400 font-bold uppercase">Durasi On-Bid</span>
-                </div>
-                <p className="text-white text-xs font-mono font-bold">
-                    {Math.floor(timeOnline)} jam {(timeOnline % 1 * 60).toFixed(0)} m
-                </p>
-                {timeOnline > 8 && <span className="text-[9px] text-red-500 font-bold uppercase mt-1">Istirahat Ndan!</span>}
-            </div>
-        </div>
-
-        {/* TARGET PROGRESS */}
-        <div className="relative pt-2">
-            <div className="flex justify-between text-[10px] uppercase font-bold text-gray-400 mb-1">
-                <span>Target: {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(settings.targetRevenue)}</span>
-                <span className={progress >= 100 ? 'text-app-accent' : 'text-white'}>{progress}%</span>
-            </div>
-            <div className="h-3 w-full bg-gray-800 rounded-full overflow-hidden border border-gray-700/50">
-                <div 
-                    className={`h-full transition-all duration-1000 relative ${progress >= 100 ? 'bg-gradient-to-r from-emerald-500 to-cyan-500' : 'bg-gradient-to-r from-amber-400 to-app-primary'}`} 
-                    style={{ width: `${progress}%` }}
+                 <button 
+                    onClick={() => setShowPowerMenu(true)} 
+                    className="p-3 rounded-full bg-[#1a1a1a] text-red-400 hover:bg-red-900/20 transition-colors"
                 >
-                    <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/diagonal-stripes.png')] opacity-30"></div>
-                </div>
-            </div>
-        </div>
+                    <Power size={24} />
+                </button>
+                 <button 
+                    onClick={onOpenSettings} 
+                    className="p-3 rounded-full bg-[#1a1a1a] text-gray-500 hover:text-white transition-colors"
+                >
+                    <Settings size={24} />
+                </button>
+          </div>
+      </div>
 
-        <button 
-            onClick={() => { setShowPowerMenu(true); playSound('click'); }}
-            className="absolute bottom-4 right-4 bg-[#222] hover:bg-gray-700 text-red-400 p-2 rounded-lg border border-gray-700 transition-colors shadow-lg z-20"
-            title="Menu Istirahat / Tutup Buku"
-        >
-            <Power size={18} />
-        </button>
+      {/* 2. PROGRESS BAR (THICK) */}
+      <div>
+        <div className="flex justify-between items-end mb-2">
+            <span className="text-xs font-bold text-gray-400 uppercase">Target Harian</span>
+            <span className={`text-xl font-black ${progress >= 100 ? 'text-emerald-400' : 'text-white'}`}>{progress}%</span>
+        </div>
+        <div className="h-4 w-full bg-[#1a1a1a] rounded-full overflow-hidden">
+            <div 
+                className={`h-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-app-primary'}`} 
+                style={{ width: `${progress}%` }}
+            ></div>
+        </div>
+        {timeOnline > 8 && (
+            <div className="mt-2 flex items-center gap-2 text-red-400 text-xs font-bold bg-red-900/10 p-2 rounded-lg border border-red-900/30">
+                <Battery size={14} /> Sudah {Math.floor(timeOnline)} jam Online. Jangan lupa istirahat.
+            </div>
+        )}
       </div>
       
-      {/* AI STRATEGY BOX */}
+      {/* 3. AI STRATEGY HERO CARD */}
       <div className="relative">
         {!aiAdvice ? (
              <button 
                 onClick={handleAiAnalysis}
                 disabled={isAiLoading}
-                className={`w-full py-4 border rounded-2xl flex items-center justify-center gap-2 font-black text-sm shadow-lg transition-all active:scale-[0.98] ${isAiLoading ? 'bg-gray-800 border-gray-700 text-gray-400' : 'bg-yellow-400 text-black border-yellow-500 hover:bg-yellow-300 shadow-yellow-400/20'}`}
+                className={`w-full py-5 rounded-3xl flex items-center justify-between px-6 font-black text-left shadow-lg transition-all active:scale-[0.98] group ${isAiLoading ? 'bg-gray-800 text-gray-500' : 'bg-gradient-to-r from-yellow-400 to-amber-500 text-black'}`}
             >
-                {isAiLoading ? <RefreshCw size={20} className="animate-spin" /> : <Sparkles size={20} className="text-black" />}
-                {isAiLoading ? "MENGANALISIS..." : "ANALISA ORDERAN (AI)"}
+                <div>
+                    <span className="block text-xs uppercase opacity-70 mb-1">{isAiLoading ? 'Menghubungi Satelit...' : 'Asisten Cerdas'}</span>
+                    <span className="text-xl">{isAiLoading ? 'Menganalisis...' : 'Minta Saran Strategi'}</span>
+                </div>
+                <div className={`p-3 bg-black/10 rounded-full ${isAiLoading ? 'animate-spin' : 'group-hover:rotate-12 transition-transform'}`}>
+                    {isAiLoading ? <RefreshCw size={24} /> : <Sparkles size={24} />}
+                </div>
             </button>
         ) : (
-            <div className="bg-gradient-to-br from-yellow-400/10 to-yellow-600/5 border border-yellow-500/50 rounded-2xl p-5 relative animate-in fade-in slide-in-from-top-4 shadow-lg shadow-yellow-900/10">
+            <div className="bg-[#1a1a1a] border border-gray-700 rounded-3xl p-6 relative animate-in fade-in slide-in-from-top-4 shadow-2xl">
                 <div className="flex items-start gap-4">
-                    <div className="flex-shrink-0 w-12 h-12 bg-app-primary rounded-xl flex items-center justify-center shadow-lg border border-yellow-300">
-                        <Disc size={28} className="text-red-600 animate-[spin_3s_linear_infinite]" strokeWidth={2.5} />
+                    <div className="flex-shrink-0 w-12 h-12 bg-gray-800 rounded-2xl flex items-center justify-center">
+                        <Target size={24} className="text-app-primary" />
                     </div>
                     <div>
-                        <h4 className="font-black text-app-primary text-xs uppercase mb-1 tracking-wider flex items-center gap-1">
-                             <Target size={12}/> STRATEGI ORDERAN
+                        <h4 className="font-black text-app-primary text-xs uppercase mb-2 tracking-wider">
+                             STRATEGI ORDERAN
                         </h4>
-                        <p className="text-sm font-bold text-gray-200 leading-relaxed whitespace-pre-line tracking-wide">
+                        <p className="text-base font-medium text-gray-200 leading-relaxed whitespace-pre-line">
                             {aiAdvice}
                         </p>
                     </div>
                 </div>
                 <button 
                     onClick={() => { setAiAdvice(null); vibrate(10); playSound('click'); }}
-                    className="absolute top-2 right-2 p-2 bg-black/20 rounded-full text-gray-400 hover:text-white hover:bg-black/40 transition-colors"
+                    className="absolute top-4 right-4 p-2 text-gray-500 hover:text-white"
                 >
-                    <X size={14} />
+                    <X size={20} />
                 </button>
             </div>
         )}
       </div>
 
-      {/* 2. INTELLIGENT RADAR LIST */}
+      {/* 4. RADAR LIST (SPACIOUS) */}
       <div>
-        <div className="flex flex-col gap-3 mb-4">
-            <div className="flex justify-between items-end px-1">
-                <div className="flex items-center gap-2">
-                    <Zap className="text-app-primary fill-current" size={18} />
-                    <h2 className="text-lg font-bold text-white">Radar Rezeki</h2>
-                    <button 
-                        onClick={handleManualScan} 
-                        className={`ml-2 p-1.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700 transition-all active:bg-gray-700 ${isScanning ? 'animate-spin text-app-primary border-app-primary' : ''}`}
-                    >
-                        <RefreshCw size={14} />
-                    </button>
-                </div>
-                <span className="text-xs text-gray-500 font-mono border border-gray-800 px-2 py-1 rounded-lg bg-[#111]">
-                    {predictions.length} Titik
-                </span>
-            </div>
-
-            {/* QUICK FILTER CHIPS */}
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                <FilterChip type="ALL" label="Semua" icon={<Layers size={14} />} />
-                <FilterChip type="FOOD" label="Food & Shop" icon={<Utensils size={14} />} />
-                <FilterChip type="BIKE" label="Bike/Car" icon={<Bike size={14} />} />
-                <FilterChip type="SEND" label="Kirim" icon={<Package size={14} />} />
-            </div>
+        <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-black text-white flex items-center gap-2">
+                <Zap className="text-app-primary fill-current" size={20} />
+                Radar Rezeki
+            </h2>
+            <button 
+                onClick={handleManualScan} 
+                className={`p-2 rounded-full bg-[#1a1a1a] text-gray-400 border border-transparent hover:border-gray-600 active:bg-gray-800 ${isScanning ? 'animate-spin text-white' : ''}`}
+            >
+                <RefreshCw size={18} />
+            </button>
         </div>
 
-        <div className="space-y-3 pb-24">
+        {/* Filters */}
+        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 mb-2">
+            <FilterChip type="ALL" label="Semua" icon={<Layers size={16} />} />
+            <FilterChip type="FOOD" label="Food" icon={<Utensils size={16} />} />
+            <FilterChip type="BIKE" label="Bike" icon={<Bike size={16} />} />
+            <FilterChip type="SEND" label="Kirim" icon={<Package size={16} />} />
+        </div>
+
+        <div className="space-y-4 pb-24">
             {predictions.length === 0 ? (
-                <div className="py-10 px-6 text-center border-2 border-dashed border-gray-800 rounded-2xl bg-[#111] space-y-4 animate-in fade-in">
-                    <div className="w-16 h-16 bg-gray-900 rounded-full flex items-center justify-center mx-auto mb-3 border border-gray-800">
-                        <CloudRain size={32} className="text-gray-600" />
+                <div className="py-12 px-6 text-center rounded-3xl bg-[#111] border border-dashed border-gray-800 space-y-4">
+                    <div className="w-20 h-20 bg-[#1a1a1a] rounded-full flex items-center justify-center mx-auto mb-3">
+                        <Skull size={32} className="text-gray-600" />
                     </div>
-                    <div>
-                        <p className="text-gray-300 font-bold text-sm">Zona Anyep (Tidak Ada Spot)</p>
-                        <p className="text-xs text-gray-600 mt-1 max-w-[220px] mx-auto">Coba matikan filter layanan atau tunggu beberapa saat lagi.</p>
-                    </div>
-                    <div className="flex gap-2 justify-center">
-                         <button 
-                            onClick={() => handleQuickFilter('ALL')}
-                            className="px-5 py-2.5 bg-gray-800 text-white border border-gray-700 rounded-full text-xs font-bold hover:bg-gray-700"
-                        >
-                            TAMPILKAN SEMUA
-                        </button>
-                        <button 
-                            onClick={handleManualScan}
-                            className="px-5 py-2.5 bg-gray-800 text-app-primary border border-gray-700 rounded-full text-xs font-bold hover:bg-gray-700"
-                        >
-                            REFRESH
-                        </button>
-                    </div>
+                    <p className="text-gray-400 font-bold">Zona Anyep (Sepi)</p>
+                    <p className="text-xs text-gray-600">Tidak ada rekomendasi di filter ini.</p>
                 </div>
             ) : (
                 predictions.map(spot => (
-                    <div key={spot.id} className="bg-app-card border border-app-border rounded-2xl p-4 relative group hover:border-gray-600 transition-colors">
+                    <div key={spot.id} className="bg-[#1a1a1a] rounded-3xl p-5 relative overflow-hidden group active:scale-[0.99] transition-transform">
                         
-                        {spot.isFallback && (
-                            <div className="absolute top-0 right-0 bg-gray-800 text-gray-400 text-[9px] px-2 py-1 rounded-bl-xl rounded-tr-xl font-bold uppercase tracking-wider">
-                                Alternatif
-                            </div>
+                        {/* Maintenance Alert Style */}
+                        {spot.isMaintenance && (
+                            <div className="absolute inset-0 bg-red-900/10 border-2 border-red-500/50 rounded-3xl z-0 pointer-events-none"></div>
                         )}
 
-                        <div 
-                            className="absolute left-0 top-4 bottom-4 w-1.5 rounded-r-full shadow-[0_0_10px_rgba(0,0,0,0.5)]" 
-                            style={{ backgroundColor: spot.isMaintenance ? '#EF4444' : CATEGORY_COLORS[spot.category] || '#fff' }}
-                        ></div>
-
-                        <div className="pl-4">
-                            <div className="flex justify-between items-start mb-2">
-                                <div className="pr-4">
-                                    <h3 className="font-bold text-lg text-white leading-tight mb-1">{spot.origin}</h3>
-                                    <div className="flex flex-wrap gap-2">
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 font-mono border border-gray-700">
-                                            {spot.category}
-                                        </span>
-                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${spot.isFallback ? 'bg-gray-900 text-gray-500 border-gray-800' : 'bg-emerald-900/30 text-emerald-400 border-emerald-800'}`}>
-                                            {spot.matchReason}
-                                        </span>
+                        <div className="relative z-10">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    {spot.isFallback && <span className="text-[10px] bg-gray-800 text-gray-400 px-2 py-1 rounded-lg font-bold uppercase mb-2 inline-block">Alternatif</span>}
+                                    <h3 className="font-black text-xl text-white leading-tight">{spot.origin}</h3>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <span className="text-xs font-bold text-app-primary">{spot.predicted_hour}</span>
+                                        <span className="text-[10px] text-gray-500">•</span>
+                                        <span className="text-xs text-gray-400">{spot.category}</span>
                                     </div>
                                 </div>
-                                <div className="text-right flex-shrink-0">
-                                    <span className="block text-xl font-mono font-bold text-app-primary">{spot.predicted_hour}</span>
-                                    <span className={`text-[10px] font-bold ${gpsReady ? 'text-gray-500' : 'text-amber-500 animate-pulse'}`}>
-                                        {gpsReady ? `${spot.distance} km` : 'Mencari Lokasi...'}
+                                <div className="text-right">
+                                    <span className={`text-2xl font-black ${gpsReady ? 'text-white' : 'text-gray-600'}`}>
+                                        {gpsReady ? spot.distance : '?'}
                                     </span>
+                                    <span className="text-xs text-gray-500 block">KM</span>
                                 </div>
                             </div>
+                            
+                            <p className="text-xs text-gray-500 line-clamp-1 mb-4">{spot.notes}</p>
 
-                            <div className="flex items-center gap-3 mt-4 border-t border-gray-800 pt-3">
+                            <div className="grid grid-cols-[1fr_auto_auto] gap-2">
                                 <button 
                                     onClick={() => { window.open(`https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}`, '_blank'); vibrate(10); playSound('click'); }}
-                                    className={`flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-transform active:scale-95 ${spot.isMaintenance ? 'bg-red-600 text-white shadow-lg shadow-red-900/50' : 'bg-white text-black hover:bg-gray-200 shadow-glow'}`}
+                                    className={`py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 ${spot.isMaintenance ? 'bg-red-600 text-white' : 'bg-white text-black'}`}
                                 >
-                                    <Navigation size={16} />
-                                    {spot.isMaintenance ? 'KE BENGKEL' : 'GAS KESANA'}
+                                    <Navigation size={18} />
+                                    {spot.isMaintenance ? 'BENGKEL' : 'GAS KESANA'}
                                 </button>
                                 
-                                <div className="flex gap-1">
-                                    <button onClick={() => handleValidation(spot.id, true)} className="p-2.5 bg-[#222] hover:bg-gray-800 rounded-xl text-emerald-500 border border-gray-700 transition-colors">
-                                        <ThumbsUp size={18} />
-                                    </button>
-                                    <button onClick={() => handleValidation(spot.id, false)} className="p-2.5 bg-[#222] hover:bg-gray-800 rounded-xl text-red-500 border border-gray-700 transition-colors">
-                                        <ThumbsDown size={18} />
-                                    </button>
-                                </div>
+                                <button onClick={() => handleValidation(spot.id, true)} className="w-12 flex items-center justify-center bg-gray-800 rounded-xl text-emerald-500">
+                                    <ThumbsUp size={20} />
+                                </button>
+                                <button onClick={() => handleValidation(spot.id, false)} className="w-12 flex items-center justify-center bg-gray-800 rounded-xl text-red-500">
+                                    <ThumbsDown size={20} />
+                                </button>
                             </div>
                         </div>
                     </div>

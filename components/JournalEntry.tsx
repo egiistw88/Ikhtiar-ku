@@ -1,31 +1,23 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Hotspot, Transaction } from '../types';
-import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate, getLocalDateString, playSound } from '../utils';
-import { MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, Navigation, Clock, Gauge, Mic, RotateCcw, AlertTriangle, Save, CreditCard, Banknote } from 'lucide-react';
+import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate, playSound } from '../utils';
+import { MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, CheckCircle2, RotateCcw, Save, CreditCard, Banknote, Mic, Radio, X } from 'lucide-react';
 import { addHotspot, addTransaction } from '../services/storage';
 import CustomDialog from './CustomDialog';
 
 interface JournalEntryProps {
-  currentTime: {
-    dayName: string;
-    timeString: string;
-    fullDate: Date;
-  };
+  currentTime: { dayName: string; timeString: string; fullDate: Date; };
   onSaved: () => void;
 }
 
 type AppSource = 'Gojek' | 'Grab' | 'Maxim' | 'Shopee' | 'Indriver';
 type ServiceType = 'Bike' | 'Food' | 'Send' | 'Shop';
 
-// Extend Window interface for Speech API
-interface IWindow extends Window {
-  webkitSpeechRecognition: any;
-  SpeechRecognition: any;
-}
+interface IWindow extends Window { webkitSpeechRecognition: any; SpeechRecognition: any; }
 
 const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationStatus, setLocationStatus] = useState<string>('Mencari satelit...');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form State
@@ -34,317 +26,112 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   const [argoRaw, setArgoRaw] = useState<string>(''); 
   const [origin, setOrigin] = useState(''); 
   const [notes, setNotes] = useState('');
-  const [entryTime, setEntryTime] = useState<string>(currentTime.timeString);
   const [tripDist, setTripDist] = useState<string>(''); 
-  
-  // NEW: Payment Method State
   const [isCash, setIsCash] = useState<boolean>(true);
 
   // Voice State
   const [isListening, setIsListening] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState<string>('Ketuk Mic untuk Input Suara');
   const [transcriptPreview, setTranscriptPreview] = useState<string>('');
   const recognitionRef = useRef<any>(null);
 
-  // Dialog State
-  const [alertConfig, setAlertConfig] = useState<{isOpen: boolean, title: string, msg: string}>({
-      isOpen: false, title: '', msg: ''
-  });
+  // Alert State
+  const [alert, setAlert] = useState<{show: boolean, msg: string}>({show: false, msg: ''});
 
   useEffect(() => {
-    setEntryTime(currentTime.timeString);
     if (navigator.geolocation) {
-      const watcher = navigator.geolocation.watchPosition(
-        (position) => {
-          setCoords({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-          setLocationStatus('GPS Terkunci Akurat');
-        },
-        (error) => {
-          setLocationStatus('Sinyal GPS Lemah (Mode Hybrid)');
-        },
-        { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => console.log("GPS Error"),
+        { enableHighAccuracy: true }
       );
-      return () => navigator.geolocation.clearWatch(watcher);
-    } else {
-        setLocationStatus('GPS Mati (Mode Hybrid)');
     }
   }, []);
 
-  // ... (Voice Logic kept standard) ...
-  const toggleVoiceInput = () => {
+  // --- VOICE LOGIC (Simplified) ---
+  const toggleVoice = () => {
       vibrate(20);
-      const windowObj = window as unknown as IWindow;
-      const SpeechRecognition = windowObj.SpeechRecognition || windowObj.webkitSpeechRecognition;
+      const Win = window as unknown as IWindow;
+      const Speech = Win.SpeechRecognition || Win.webkitSpeechRecognition;
 
-      if (!SpeechRecognition) {
-          showAlert("Browser Tidak Mendukung", "Fitur ini butuh Google Chrome atau WebView Android terbaru.");
-          return;
-      }
+      if (!Speech) { setAlert({show: true, msg: "Browser tidak support voice input."}); return; }
 
-      if (isListening) {
-          stopListening();
-          return;
-      }
+      if (isListening) { recognitionRef.current?.stop(); setIsListening(false); return; }
 
-      startListening(SpeechRecognition);
-  };
-
-  const startListening = (SpeechRecognition: any) => {
       try {
-          const recognition = new SpeechRecognition();
-          recognition.lang = 'id-ID'; 
-          recognition.continuous = false; 
-          recognition.interimResults = true; 
-          recognition.maxAlternatives = 1;
-
-          recognition.onstart = () => {
-              setIsListening(true);
-              setVoiceStatus("Mendengarkan...");
-              setTranscriptPreview("");
+          const rec = new Speech();
+          rec.lang = 'id-ID'; 
+          rec.continuous = false;
+          rec.onstart = () => { setIsListening(true); setTranscriptPreview("Mendengarkan..."); };
+          rec.onend = () => setIsListening(false);
+          rec.onresult = (e: any) => {
+              const text = e.results[0][0].transcript;
+              setTranscriptPreview(text);
+              processText(text);
           };
-
-          recognition.onend = () => {
-              setIsListening(false);
-              setVoiceStatus("Ketuk Mic untuk Input Suara");
-          };
-
-          recognition.onerror = (e: any) => { 
-              console.error(e); 
-              setIsListening(false);
-              setVoiceStatus("Gagal. Coba lagi.");
-              playSound('error');
-          };
-
-          recognition.onresult = (event: any) => {
-              const transcript = event.results[0][0].transcript;
-              setTranscriptPreview(transcript);
-
-              if (event.results[0].isFinal) {
-                  processVoiceInput(transcript);
-              }
-          };
-
-          recognitionRef.current = recognition;
-          recognition.start();
+          recognitionRef.current = rec;
+          rec.start();
           playSound('click');
-      } catch (e) {
-          console.error(e);
-          showAlert("Error", "Gagal memulai mikrofon.");
-      }
+      } catch (e) { console.error(e); setIsListening(false); }
   };
 
-  const stopListening = () => {
-      if (recognitionRef.current) {
-          recognitionRef.current.stop();
-          setIsListening(false);
-      }
-  };
-
-  const showAlert = (title: string, msg: string) => {
-      setAlertConfig({ isOpen: true, title, msg });
-      playSound('error');
-  };
-
-  // --- HELPER: TEXT NORMALIZER ---
-  const normalizeText = (text: string): string => {
-      let s = text.toLowerCase();
-      s = s.replace(/rp\.?\s*/g, ' '); 
-      s = s.replace(/setengah/g, '0.5').replace(/satu setengah/g, '1.5');
-      s = s.replace(/koma/g, '.').replace(/point/g, '.');
-
-      const slangMoney: Record<string, string> = {
-          'gopek': '500', 'seceng': '1000', 'cenggo': '1500', 'goceng': '5000', 
-          'ceban': '10000', 'noban': '20000', 'jigo': '25000', 'goban': '50000', 
-          'gocap': '50000', 'cepek': '100000', 'juta': '1000000'
-      };
-      for (const [key, val] of Object.entries(slangMoney)) {
-          s = s.replace(new RegExp(`\\b${key}\\b`, 'g'), val);
-      }
-      const wordMap: Record<string, string> = {
-          'nol': '0', 'satu': '1', 'dua': '2', 'tiga': '3', 'empat': '4',
-          'lima': '5', 'enam': '6', 'tujuh': '7', 'delapan': '8', 'sembilan': '9',
-          'sepuluh': '10', 'sebelas': '11', 'seratus': '100', 'lima puluh': '50', 
-          'dua puluh': '20', 'tiga puluh': '30'
-      };
-      Object.keys(wordMap).forEach(key => {
-         const regex = new RegExp(`\\b${key}\\s+(ribu|rb|ratus|puluh|juta|km|kilo|meter)\\b`, 'gi');
-         s = s.replace(regex, (match) => match.replace(key, wordMap[key]));
-      });
-      return s.replace(/\s+/g, ' ').trim();
-  };
-
-  // --- CORE ENGINE ---
-  const processVoiceInput = (rawTranscript: string) => {
-      vibrate([50, 30, 50]);
+  const processText = (text: string) => {
       playSound('success');
-      setVoiceStatus("Menganalisis...");
+      const lower = text.toLowerCase();
 
-      let processingText = normalizeText(rawTranscript);
+      // Detect App
+      if (lower.includes('gojek')) setAppSource('Gojek');
+      else if (lower.includes('grab')) setAppSource('Grab');
+      else if (lower.includes('shopee')) setAppSource('Shopee');
+      else if (lower.includes('indriver')) setAppSource('Indriver');
+      else if (lower.includes('maxim')) setAppSource('Maxim');
 
-      // Payment Method Detection
-      if (processingText.includes('non tunai') || processingText.includes('ovo') || processingText.includes('gopay') || processingText.includes('saldo')) {
-          setIsCash(false);
-      } else if (processingText.includes('tunai') || processingText.includes('cash')) {
-          setIsCash(true);
+      // Detect Service
+      if (lower.includes('makan') || lower.includes('food')) setServiceType('Food');
+      else if (lower.includes('kirim') || lower.includes('paket') || lower.includes('send')) setServiceType('Send');
+      else if (lower.includes('belanja') || lower.includes('shop') || lower.includes('mart')) setServiceType('Shop');
+      else if (lower.includes('penumpang') || lower.includes('orang') || lower.includes('bike')) setServiceType('Bike');
+
+      // Detect Money (Basic regex)
+      const moneyMatch = text.match(/(\d+)(?:ribu|rb|k)/i) || text.match(/(\d{4,})/);
+      if (moneyMatch) {
+          let val = parseInt(moneyMatch[1]);
+          if (val < 1000) val *= 1000;
+          setArgoRaw(formatCurrencyInput(val.toString()));
       }
 
-      // 1. Distance
-      let distVal = 0;
-      let distStringMatch = "";
-      const distPattern = /(\d+(?:[\.,]\d+)?)\s*(km|kilo|kilometer|meter|m)\b/i;
-      const matchDist = processingText.match(distPattern);
-      if (matchDist) {
-          let val = parseFloat(matchDist[1].replace(',', '.'));
-          const unit = matchDist[2].toLowerCase();
-          if (unit.startsWith('m') && unit !== 'meter') val /= 1000;
-          if (unit === 'meter') val /= 1000;
-          distVal = val;
-          distStringMatch = matchDist[0];
-      }
-
-      if (distVal > 0) {
-          setTripDist(distVal.toString());
-          processingText = processingText.replace(distStringMatch, " ");
-      }
-
-      // 2. Money
-      let moneyVal = 0;
-      let moneyStringMatch = "";
-      const dotPattern = /\b\d{1,3}(?:\.\d{3})+\b/g;
-      const dotMatches = processingText.match(dotPattern);
-      if (dotMatches) {
-          for (const m of dotMatches) {
-              const val = parseInt(m.replace(/\./g, ''));
-              if (val >= 1000) {
-                  moneyVal = val;
-                  moneyStringMatch = m;
-                  break; 
-              }
-          }
-      }
-      if (moneyVal === 0) {
-          const suffixPattern = /(\d+(?:[\.,]\d+)?)\s*(ribu|rb|k|000)\b/i;
-          const match = processingText.match(suffixPattern);
-          if (match) {
-              let rawNum = match[1].replace(',', '.');
-              let val = parseFloat(rawNum);
-              const suffix = match[2].toLowerCase();
-              if (suffix === '000') val = val * 1000; else val *= 1000;
-              moneyVal = val;
-              moneyStringMatch = match[0];
-          }
-      }
-      if (moneyVal === 0) {
-           const bigNumPattern = /\b(\d{4,})\b/;
-           const match = processingText.match(bigNumPattern);
-           if (match) {
-               moneyVal = parseInt(match[1]);
-               moneyStringMatch = match[0];
-           }
-      }
-
-      if (moneyVal > 0) {
-          setArgoRaw(formatCurrencyInput(moneyVal.toString()));
-          processingText = processingText.replace(moneyStringMatch, " ");
-      }
-
-      // 3. Apps & Service
-      const apps: Record<string, AppSource> = {
-          'gojek': 'Gojek', 'gofood': 'Gojek', 'gosend': 'Gojek',
-          'grab': 'Grab', 'grabfood': 'Grab', 'grabexpress': 'Grab',
-          'maxim': 'Maxim', 'shopee': 'Shopee', 'indriver': 'Indriver'
-      };
-      let appFound = false;
-      for (const [key, val] of Object.entries(apps)) {
-          if (processingText.includes(key)) {
-              setAppSource(val);
-              appFound = true;
-              processingText = processingText.replace(key, " ");
-          }
-      }
-
-      const services: Record<string, ServiceType> = {
-          'food': 'Food', 'makan': 'Food', 'lapar': 'Food', 'restoran': 'Food', 'resto': 'Food',
-          'shop': 'Shop', 'belanja': 'Shop', 'mart': 'Shop', 'beli': 'Shop',
-          'send': 'Send', 'kirim': 'Send', 'paket': 'Send', 'antar': 'Send',
-          'bike': 'Bike', 'motor': 'Bike', 'penumpang': 'Bike', 'jemput': 'Bike', 'ride': 'Bike'
-      };
-      let serviceFound = false;
-      for (const [key, val] of Object.entries(services)) {
-          if (processingText.includes(key)) {
-              setServiceType(val);
-              serviceFound = true;
-              processingText = processingText.replace(key, " ");
-          }
-      }
-
-      // 4. Cleanup & Location
-      const fillers = ['dapat', 'orderan', 'dari', 'di', 'ke', 'tujuannya', 'arah', 'seharga', 'tarif', 'ongkir', 'biaya', 'harga', 'rupiah', 'rp', 'perak', 'jarak', 'jauhnya', 'kilo', 'km', 'meter', 'namanya', 'daerah', 'kawasan', 'lokasi', 'posisi'];
-      fillers.forEach(word => {
-          processingText = processingText.replace(new RegExp(`\\b${word}\\b`, 'gi'), " ");
-      });
-
-      let finalLoc = processingText.replace(/\s+/g, ' ').replace(/[^\w\s\(\)\.\-]/gi, '').trim();
-      if (!serviceFound && finalLoc) {
-          const lower = finalLoc.toLowerCase();
-          if (/mie|nasi|kopi|cafe|resto|warung|soto|bakso|geprek|seblak|ayam/i.test(lower)) setServiceType('Food');
-          else if (/mart|super|pasar|mall|toko|grosir/i.test(lower)) setServiceType('Shop');
-      }
-
-      if (finalLoc) setOrigin(finalLoc.replace(/(?:^|\s)\S/g, a => a.toUpperCase())); 
-      setTranscriptPreview("Siap!");
-      setTimeout(() => setTranscriptPreview(""), 1500);
-      setVoiceStatus("Ketuk Mic untuk Input Suara");
-  };
-
-  const handleArgoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const formatted = formatCurrencyInput(e.target.value);
-      setArgoRaw(formatted);
+      // Detect Location keywords
+      const locKeywords = lower.split(' di ')[1] || lower.split(' dari ')[1];
+      if (locKeywords) setOrigin(locKeywords.replace(/[^\w\s]/gi, '').split(' ').slice(0, 3).join(' '));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    vibrate(50); 
-    
-    // VALIDASI UANG
     const argoVal = parseCurrencyInput(argoRaw);
-    if (!argoVal || argoVal <= 0) {
-        showAlert("Lupa Argo?", "Isi dulu argonya Ndan.");
-        return;
-    }
+    if (!argoVal) { setAlert({show: true, msg: "Isi argo dulu Ndan."}); return; }
 
     setIsSubmitting(true);
+    vibrate(50);
+    playSound('success');
 
+    // Save Data Logic
     let category: Hotspot['category'] = 'Other';
     if (serviceType === 'Food') category = 'Culinary';
     if (serviceType === 'Bike') category = 'Bike';
     if (serviceType === 'Send') category = 'Logistics';
     if (serviceType === 'Shop') category = 'Mall/Lifestyle';
 
-    const distVal = parseFloat(tripDist) || 0;
-
-    // --- LOGIKA SIMPAN HYBRID ---
     if (coords) {
-        const [h, m] = entryTime.split(':').map(Number);
-        const timeWindow = getTimeWindow(h);
-
+        const [h] = currentTime.timeString.split(':').map(Number);
         const newHotspot: Hotspot = {
             id: Date.now().toString(),
             date: currentTime.fullDate.toISOString().split('T')[0],
             day: currentTime.dayName,
-            time_window: timeWindow,
-            predicted_hour: entryTime, 
-            origin: origin || `Titik ${serviceType} ${appSource}`,
+            time_window: getTimeWindow(h),
+            predicted_hour: currentTime.timeString, 
+            origin: origin || `Titik ${serviceType}`,
             type: `${serviceType} (${appSource})`,
-            category: category,
-            lat: coords.lat,
-            lng: coords.lng,
-            zone: 'User Entry',
-            notes: `${notes} [App: ${appSource}] [Argo: ${argoVal}]`,
-            isUserEntry: true,
+            category, lat: coords.lat, lng: coords.lng, zone: 'User Entry',
+            notes: `${notes} [${appSource}]`, isUserEntry: true,
             validations: [{ date: currentTime.fullDate.toISOString().split('T')[0], isAccurate: true }]
         };
         addHotspot(newHotspot);
@@ -357,266 +144,112 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
         amount: argoVal,
         type: 'income',
         category: serviceType === 'Bike' ? 'Trip' : 'Other',
-        note: `Orderan ${appSource} - ${origin || 'Manual Input'}`,
-        distanceKm: distVal,
-        isCash: isCash // Simpan status pembayaran
+        note: `${appSource} - ${origin || 'Manual'}`,
+        distanceKm: parseFloat(tripDist) || 0,
+        isCash
     };
-    
     addTransaction(newTx);
-    playSound('success');
-
-    setTimeout(() => {
-        setIsSubmitting(false);
-        onSaved();
-    }, 800);
+    
+    setTimeout(() => { setIsSubmitting(false); onSaved(); }, 800);
   };
 
-  // UI Components helpers
-  const AppButton = ({ name, colorClass, activeClass }: { name: AppSource, colorClass: string, activeClass: string }) => (
-      <button
-        type="button"
-        onClick={() => { setAppSource(name); vibrate(10); playSound('click'); }}
-        className={`relative p-3 rounded-xl border font-bold text-sm transition-all active:scale-95 flex flex-col items-center justify-center gap-1 ${appSource === name ? activeClass : 'bg-[#1e1e1e] border-gray-700 text-gray-500 hover:bg-gray-800'}`}
-      >
-          {appSource === name && <div className="absolute top-1 right-1 w-2 h-2 bg-white rounded-full animate-pulse shadow-sm"></div>}
-          <span className="uppercase tracking-wider">{name}</span>
+  const SourceChip = ({ name, col }: { name: AppSource, col: string }) => (
+      <button type="button" onClick={() => { setAppSource(name); vibrate(10); }} className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all border ${appSource === name ? `${col} text-white shadow-lg scale-105 border-transparent` : 'bg-black border-gray-800 text-gray-600'}`}>
+          {name}
       </button>
   );
 
-  const ServiceButton = ({ type, icon, label }: { type: ServiceType, icon: React.ReactNode, label: string }) => (
-    <button
-        type="button"
-        onClick={() => { setServiceType(type); vibrate(10); playSound('click'); }}
-        className={`p-4 rounded-xl border flex flex-col items-center gap-2 transition-all active:scale-95 ${serviceType === type ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/50' : 'bg-[#1e1e1e] border-gray-700 text-gray-400 hover:bg-gray-800'}`}
-    >
-        {icon}
-        <span className="text-xs font-bold uppercase">{label}</span>
-    </button>
-  );
-
   return (
-    <div className="pb-32 pt-4 px-4 max-w-lg mx-auto min-h-full">
-      <CustomDialog 
-        isOpen={alertConfig.isOpen}
-        type="alert"
-        title={alertConfig.title}
-        message={alertConfig.msg}
-        onConfirm={() => setAlertConfig(prev => ({ ...prev, isOpen: false }))}
-      />
+    <div className="pb-32 pt-4 px-4 max-w-lg mx-auto h-full flex flex-col">
+      <CustomDialog isOpen={alert.show} type="alert" title="Info" message={alert.msg} onConfirm={() => setAlert({show: false, msg: ''})} />
 
-      <div className="flex justify-between items-end mb-6">
-          <div>
-            <h2 className="text-2xl font-black text-white uppercase tracking-tight">Input Gacor</h2>
-            <p className="text-gray-400 text-xs">Simpan ke Radar & Dompet sekaligus.</p>
-          </div>
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-bold ${coords ? 'bg-emerald-900/30 border-emerald-800 text-emerald-400' : 'bg-amber-900/30 border-amber-800 text-amber-400'}`}>
-             {coords ? <MapPin size={12} /> : <AlertTriangle size={12} className={locationStatus.includes('Mencari') ? 'animate-spin' : ''} />}
-             {locationStatus}
+      {/* HEADER */}
+      <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Input Order</h2>
+          <div className={`px-3 py-1 rounded-full text-[10px] font-bold border flex items-center gap-1 ${coords ? 'bg-emerald-900/30 border-emerald-500/30 text-emerald-400' : 'bg-red-900/30 border-red-500/30 text-red-400'}`}>
+             <MapPin size={10} /> {coords ? 'GPS OK' : 'NO GPS'}
           </div>
       </div>
 
-      {/* WARNING IF GPS DEAD */}
-      {!coords && (
-          <div className="mb-6 p-3 bg-amber-900/10 border border-amber-900/40 rounded-xl flex items-center gap-3">
-              <AlertTriangle className="text-amber-500 flex-shrink-0" size={20} />
-              <div className="text-xs text-amber-200">
-                  <span className="font-bold block text-amber-500">Mode Tanpa Lokasi</span>
-                  Data tetap masuk ke <span className="font-bold underline">Dompet</span> (Keuangan), tapi tidak akan muncul di Peta Radar.
-              </div>
-          </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="flex-1 flex flex-col gap-4">
         
-        {/* VOICE INPUT BUTTON */}
-        <div className="relative group">
-            {/* ACTIVE LISTENING VISUALIZER */}
-            {isListening && (
-                <>
-                    <div className="absolute inset-0 bg-red-600 rounded-2xl animate-ping opacity-30"></div>
-                    <div className="absolute -inset-1 bg-red-600/20 rounded-3xl animate-pulse blur-sm"></div>
-                </>
+        {/* VOICE HERO */}
+        <button 
+            type="button"
+            onClick={toggleVoice}
+            className={`w-full py-6 rounded-3xl font-black text-lg flex flex-col items-center justify-center gap-2 transition-all border relative overflow-hidden shadow-2xl ${isListening ? 'bg-red-600 border-red-500 text-white' : 'glass-panel text-cyan-400 border-cyan-500/30 hover:bg-cyan-900/10'}`}
+        >
+            {isListening ? (
+                <div className="animate-pulse flex items-center gap-2"><Radio size={24}/> MENDENGARKAN...</div>
+            ) : (
+                <><Mic size={32} /> <span className="text-sm tracking-widest">TAP & BICARA</span></>
             )}
-            
-            <button 
-                type="button"
-                onClick={toggleVoiceInput}
-                className={`w-full py-6 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all border-2 overflow-hidden relative shadow-xl z-10 ${isListening ? 'bg-red-600 text-white border-red-500 scale-[1.02]' : 'bg-[#222] text-cyan-400 border-gray-700 hover:border-cyan-500 hover:bg-[#2a2a2a]'}`}
-            >
-                {isListening ? (
-                    <div className="flex items-center gap-2">
-                        <span className="flex gap-1 h-4 items-center">
-                            <span className="w-1 h-2 bg-white animate-[bounce_1s_infinite]"></span>
-                            <span className="w-1 h-4 bg-white animate-[bounce_1.2s_infinite]"></span>
-                            <span className="w-1 h-3 bg-white animate-[bounce_0.8s_infinite]"></span>
-                        </span>
-                        <span className="uppercase tracking-widest animate-pulse">MENDENGARKAN...</span>
-                    </div>
-                ) : (
-                    <>
-                        <Mic size={24} />
-                        <span className="uppercase tracking-wide text-sm md:text-base">Input Suara (AI)</span>
-                    </>
-                )}
-            </button>
-            
-            {/* Status & Transcript Area */}
-            <div className={`mt-3 text-center transition-all duration-300 min-h-[40px] flex flex-col justify-center`}>
-                {transcriptPreview ? (
-                    <p className={`text-sm font-bold italic leading-tight animate-in fade-in slide-in-from-top-2 ${isListening ? 'text-white' : 'text-emerald-400'}`}>
-                        "{transcriptPreview}"
-                    </p>
-                ) : (
-                    <p className="text-[10px] text-gray-500 italic">
-                        Coba: "Dapat Gojek <span className="text-cyan-600 font-bold">di Mie Gacoan</span> sepuluh ribu, <span className="text-white">jarak 3.5 kilo</span>"
-                    </p>
-                )}
-            </div>
+            {transcriptPreview && <p className="text-xs font-mono mt-1 text-white opacity-80 px-4 line-clamp-1">"{transcriptPreview}"</p>}
+        </button>
+
+        {/* APP SOURCE */}
+        <div className="flex gap-2">
+            <SourceChip name="Maxim" col="bg-yellow-500" />
+            <SourceChip name="Gojek" col="bg-green-600" />
+            <SourceChip name="Grab" col="bg-white !text-green-700" />
+            <SourceChip name="Shopee" col="bg-orange-500" />
         </div>
 
-        <div className="space-y-2">
-            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Sumber Orderan</label>
-            <div className="grid grid-cols-3 gap-2">
-                <AppButton name="Maxim" colorClass="bg-yellow-400" activeClass="bg-yellow-500 border-yellow-400 text-black" />
-                <AppButton name="Gojek" colorClass="bg-green-600" activeClass="bg-green-600 border-green-500 text-white" />
-                <AppButton name="Grab" colorClass="bg-white" activeClass="bg-gray-100 border-white text-green-700" />
-                <AppButton name="Shopee" colorClass="bg-orange-500" activeClass="bg-orange-500 border-orange-400 text-white" />
-                <AppButton name="Indriver" colorClass="bg-emerald-600" activeClass="bg-lime-600 border-lime-500 text-white" />
-            </div>
+        {/* SERVICE TYPE */}
+        <div className="grid grid-cols-4 gap-2">
+            {[
+                {id: 'Bike', icon: <Bike size={20}/>, label: 'Bike'},
+                {id: 'Food', icon: <Utensils size={20}/>, label: 'Food'},
+                {id: 'Send', icon: <Package size={20}/>, label: 'Kirim'},
+                {id: 'Shop', icon: <ShoppingBag size={20}/>, label: 'Jajan'}
+            ].map(s => (
+                <button key={s.id} type="button" onClick={() => { setServiceType(s.id as any); vibrate(10); }} className={`p-3 rounded-2xl flex flex-col items-center gap-1 transition-all border ${serviceType === s.id ? 'bg-emerald-600 border-emerald-500 text-white' : 'glass-panel border-gray-800 text-gray-500'}`}>
+                    {s.icon} <span className="text-[9px] font-bold uppercase">{s.label}</span>
+                </button>
+            ))}
         </div>
 
-        <div className="space-y-2">
-            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Jenis Layanan</label>
-            <div className="grid grid-cols-4 gap-2">
-                <ServiceButton type="Bike" label="Bike" icon={<Bike size={24} />} />
-                <ServiceButton type="Food" label="Food" icon={<Utensils size={24} />} />
-                <ServiceButton type="Send" label="Kirim" icon={<Package size={24} />} />
-                <ServiceButton type="Shop" label="Belanja" icon={<ShoppingBag size={24} />} />
-            </div>
-        </div>
-
-        <div className="space-y-2">
-             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Pendapatan Bersih (Rp)</label>
-             <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold">Rp</span>
-                <input 
-                    required
-                    type="text" 
-                    inputMode="numeric"
-                    value={argoRaw}
-                    onChange={handleArgoChange}
-                    placeholder="0"
-                    className="w-full p-4 pl-12 bg-[#1e1e1e] border-2 border-gray-700 rounded-2xl text-white text-3xl font-mono font-bold focus:border-cyan-500 focus:outline-none transition-colors placeholder-gray-700"
-                />
-             </div>
-             
-             {/* TOGGLE CASH VS NON-CASH */}
-             <div className="flex gap-2 pt-1">
-                 <button 
-                    type="button" 
-                    onClick={() => { setIsCash(true); vibrate(10); playSound('click'); }}
-                    className={`flex-1 py-2 rounded-xl flex items-center justify-center gap-2 border font-bold text-xs transition-all ${isCash ? 'bg-emerald-900/40 border-emerald-500 text-emerald-400' : 'bg-[#1e1e1e] border-gray-700 text-gray-500'}`}
-                 >
-                     <Banknote size={14} /> TUNAI (CASH)
-                 </button>
-                 <button 
-                    type="button" 
-                    onClick={() => { setIsCash(false); vibrate(10); playSound('click'); }}
-                    className={`flex-1 py-2 rounded-xl flex items-center justify-center gap-2 border font-bold text-xs transition-all ${!isCash ? 'bg-purple-900/40 border-purple-500 text-purple-400' : 'bg-[#1e1e1e] border-gray-700 text-gray-500'}`}
-                 >
-                     <CreditCard size={14} /> SALDO / OVO
-                 </button>
-             </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-             <div className="space-y-2">
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1">
-                    <Clock size={12}/> Jam Order
-                </label>
-                <input 
-                    type="time"
-                    value={entryTime}
-                    onChange={(e) => setEntryTime(e.target.value)}
-                    className="w-full p-3 bg-[#1e1e1e] border border-gray-700 rounded-xl text-white font-mono text-center focus:border-cyan-500"
-                />
-             </div>
-             <div className="space-y-2">
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1">
-                    <Gauge size={12}/> Jarak (KM)
-                </label>
-                <div className="relative">
+        {/* MAIN INPUTS */}
+        <div className="glass-panel p-4 rounded-3xl space-y-4">
+            {/* ARGO */}
+            <div>
+                <label className="text-[10px] font-bold text-gray-500 uppercase">Pendapatan Bersih</label>
+                <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xl font-bold text-gray-500">Rp</span>
                     <input 
-                        type="number"
-                        step="0.1"
-                        value={tripDist}
-                        onChange={(e) => setTripDist(e.target.value)}
-                        placeholder="0.0"
-                        className={`w-full p-3 border rounded-xl text-white font-mono text-center focus:border-cyan-500 transition-all ${tripDist ? 'bg-emerald-900/20 border-emerald-500/50' : 'bg-[#1e1e1e] border-gray-700'}`}
+                        required autoFocus type="text" inputMode="numeric" placeholder="0"
+                        value={argoRaw} onChange={e => setArgoRaw(formatCurrencyInput(e.target.value))}
+                        className="w-full bg-transparent text-4xl font-mono font-bold text-white focus:outline-none placeholder-gray-800"
                     />
-                    {tripDist && (
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 animate-in fade-in">
-                            <CheckCircle2 size={16} />
-                        </div>
-                    )}
-                </div>
-             </div>
-        </div>
-
-        <div className="space-y-4 pt-2">
-             <div>
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">Nama Titik / Resto</label>
-                <div className="relative">
-                    <Navigation size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
-                    <input 
-                        required
-                        type="text" 
-                        value={origin}
-                        onChange={(e) => setOrigin(e.target.value)}
-                        placeholder={serviceType === 'Food' ? "Contoh: Mie Gacoan..." : "Contoh: Simpang Dago..."}
-                        className="w-full p-4 pl-12 bg-[#1e1e1e] border border-gray-700 rounded-xl text-white focus:border-cyan-500 focus:outline-none font-medium"
-                    />
-                    {/* Auto-fill indicator */}
-                    {origin && (
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2 text-cyan-500 animate-in fade-in">
-                            <CheckCircle2 size={18} />
-                        </div>
-                    )}
-                    <button 
-                        type="button"
-                        onClick={() => {setOrigin(''); setNotes(''); vibrate(10);}}
-                        className="absolute right-2 top-2 p-2 text-gray-600 hover:text-white"
-                        title="Reset Text"
-                    >
-                        <RotateCcw size={14}/>
-                    </button>
                 </div>
             </div>
-             <div>
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">Catatan (Opsional)</label>
-                <textarea 
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Ada event? Bubaran pabrik? Diskon?"
-                    rows={2}
-                    className="w-full p-4 bg-[#1e1e1e] border border-gray-700 rounded-xl text-white focus:border-cyan-500 focus:outline-none text-sm resize-none"
+            
+            {/* CASH TOGGLE */}
+            <div className="flex bg-black/50 p-1 rounded-xl">
+                <button type="button" onClick={() => setIsCash(true)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${isCash ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-500'}`}>TUNAI</button>
+                <button type="button" onClick={() => setIsCash(false)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${!isCash ? 'bg-purple-600 text-white shadow-md' : 'text-gray-500'}`}>SALDO</button>
+            </div>
+
+            {/* LOCATION */}
+            <div className="relative">
+                 <input 
+                    type="text" placeholder="Nama Lokasi / Resto..."
+                    value={origin} onChange={e => setOrigin(e.target.value)}
+                    className="w-full bg-black/30 border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-cyan-500 focus:outline-none"
                 />
+                {origin && <button type="button" onClick={() => setOrigin('')} className="absolute right-3 top-3 text-gray-500"><X size={16}/></button>}
             </div>
         </div>
 
-        <div className="pt-4">
-            <button 
-                type="submit"
-                disabled={isSubmitting}
-                className={`w-full py-4 rounded-xl font-black text-lg shadow-xl flex justify-center items-center gap-2 transition-all active:scale-[0.98] ${isSubmitting ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : (coords ? 'bg-cyan-500 hover:bg-cyan-400 text-black' : 'bg-amber-500 hover:bg-amber-400 text-black')}`}
-            >
-                {isSubmitting ? <Loader2 size={24} className="animate-spin" /> : (coords ? <CheckCircle2 size={24} /> : <Save size={24} />)}
-                {isSubmitting ? 'MENYIMPAN...' : (coords ? 'SIMPAN & MASUK DOMPET' : 'SIMPAN KE DOMPET SAJA')}
-            </button>
-            <p className="text-center text-[10px] text-gray-500 mt-3">
-                {coords ? '*Data lokasi otomatis masuk ke algoritma Radar besok.' : '*GPS Mati: Hanya tersimpan sebagai catatan keuangan.'}
-            </p>
-        </div>
+        {/* SUBMIT */}
+        <button 
+            type="submit" disabled={isSubmitting}
+            className={`mt-auto w-full py-5 rounded-3xl font-black text-xl flex items-center justify-center gap-2 shadow-glow transition-transform active:scale-[0.98] ${isSubmitting ? 'bg-gray-800 text-gray-500' : 'bg-app-primary text-black'}`}
+        >
+            {isSubmitting ? <Loader2 className="animate-spin"/> : <Save size={24}/>}
+            SIMPAN
+        </button>
+
       </form>
     </div>
   );

@@ -8,7 +8,6 @@ const FINANCE_KEY = 'ikhtiar_ku_finance_v1';
 const SETTINGS_KEY = 'ikhtiar_ku_settings_v1';
 const GARAGE_KEY = 'ikhtiar_ku_garage_v1';
 
-// ... (safeSetItem & runDataHousekeeping kept same as before) ...
 // Wrapper untuk menangani QuotaExceededError jika HP kentang / memori penuh
 const safeSetItem = (key: string, value: string) => {
     try {
@@ -28,19 +27,24 @@ const safeSetItem = (key: string, value: string) => {
     }
 };
 
+// OPTIMASI RADIKAL: Driver butuh kecepatan. History terlalu lama bikin HP lemot.
+// Default Retention diperpendek: Transaksi 7 Hari, Hotspot 14 Hari.
 export const runDataHousekeeping = (forceAggressive: boolean = false): { cleanedHotspots: number, cleanedTxs: number, status: string } => {
     try {
         const now = new Date();
-        const txRetentionDays = forceAggressive ? 14 : 30;
-        const hotspotRetentionDays = forceAggressive ? 30 : 60;
+        // Aggressive by default for field performance
+        const txRetentionDays = forceAggressive ? 3 : 7; 
+        const hotspotRetentionDays = forceAggressive ? 7 : 14;
 
         const limitDateTx = new Date(now.setDate(now.getDate() - txRetentionDays)).getTime();
         const limitDateSpot = new Date(now.setDate(now.getDate() - hotspotRetentionDays)).getTime();
         
+        // Hapus juga data masa depan yang aneh (tanggal hp ngaco)
         const futureLimit = new Date();
-        futureLimit.setDate(futureLimit.getDate() + 2); 
+        futureLimit.setDate(futureLimit.getDate() + 1); 
         const futureLimitTime = futureLimit.getTime();
 
+        // 1. CLEAN TRANSACTIONS
         const currentTxs = getTransactions();
         const validTxs = currentTxs.filter(tx => {
             if (!tx.timestamp) return false; 
@@ -54,23 +58,17 @@ export const runDataHousekeeping = (forceAggressive: boolean = false): { cleaned
             localStorage.setItem(FINANCE_KEY, JSON.stringify(validTxs));
         }
 
+        // 2. CLEAN HOTSPOTS
         const currentHotspots = getHotspots();
         const validHotspots = currentHotspots.filter(h => {
-            if (!h.isUserEntry) return true; 
+            if (!h.isUserEntry) return true; // Keep Seed Data
 
             const entryDate = new Date(h.date).getTime();
             if (isNaN(entryDate)) return false;
             if (entryDate > futureLimitTime) return false;
             if (entryDate < limitDateSpot) return false;
 
-            const lastValidation = h.validations?.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-            if (lastValidation) {
-                const lastValidDate = new Date(lastValidation.date).getTime();
-                const validationLimit = forceAggressive ? limitDateTx : limitDateTx; 
-                if (lastValidDate > validationLimit) return true;
-            }
-
-            return false;
+            return true;
         });
 
         const removedHotspotsCount = currentHotspots.length - validHotspots.length;

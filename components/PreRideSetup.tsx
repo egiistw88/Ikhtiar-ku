@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { ShiftState } from '../types';
 import { saveShiftState, getShiftState } from '../services/storage';
 import { getLocalDateString, formatCurrencyInput, parseCurrencyInput } from '../utils';
-import { Wallet, ArrowRight, Fuel, AlertTriangle, RefreshCw, CheckCircle2, Gauge } from 'lucide-react';
+import { Wallet, ArrowRight, Fuel, AlertTriangle, RefreshCw, CheckCircle2, Gauge, Zap, Banknote, ShieldAlert, Coins } from 'lucide-react';
 
 interface PreRideSetupProps {
     onComplete: () => void;
@@ -18,6 +18,76 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
     const [fuel, setFuel] = useState<number>(existing ? existing.startFuel : 60);
     const [error, setError] = useState<string | null>(null);
     
+    // State untuk Modal Briefing
+    const [briefing, setBriefing] = useState<{show: boolean, msg: string, subMsg: string, type: 'CRITICAL' | 'WARNING' | 'OPPORTUNITY' | 'NORMAL', icon: any} | null>(null);
+
+    // --- LOGIC ENGINE: SURVIVAL HIERARCHY ---
+    const generatePreFlightBriefing = (bal: number, cash: number, fuel: number) => {
+        
+        // 1. LEVEL BAHAYA FISIK (Bensin)
+        // Resiko: Mogok, Bintang 1, Dorong motor. Tidak bisa di-nego.
+        if (fuel <= 15) {
+            return {
+                type: 'CRITICAL',
+                icon: Fuel,
+                msg: "JANGAN JUDI DENGAN BENSIN!",
+                subMsg: "Resiko mogok saat bawa penumpang itu fatal (Bintang 1). Mampir SPBU terdekat sekarang juga sebelum nyalakan aplikasi. Bismillah, amanah nomor satu."
+            };
+        }
+
+        // 2. LEVEL BAHAYA SISTEM (Saldo Akun)
+        // Resiko: Akun Gagu, cuma dapat order receh/food, prioritas rendah di server.
+        // Ambang batas Maxim biasanya aman di 15rb-20rb untuk auto-assign.
+        if (bal < 10000) {
+            return {
+                type: 'CRITICAL',
+                icon: ShieldAlert,
+                msg: "AKUN RAWAN ANYEP / GAGU",
+                subMsg: "Saldo di bawah 10rb bikin server 'malas' kasih order auto. Topup ceban (10rb) aja dulu biar akun dianggap aktif. Bismillah, pancingan harus ada."
+            };
+        } else if (bal < 25000) {
+            return {
+                type: 'WARNING',
+                icon: Wallet,
+                msg: "SALDO MEPET BATAS AMAN",
+                subMsg: "Masih bisa narik, tapi hati-hati dapat orderan Food/Shop talangan besar. Saran: Ambil 2-3 orderan pendek dulu buat putar modal. Bismillah, rezeki lancar."
+            };
+        }
+
+        // 3. LEVEL OPERASIONAL (Uang Tunai)
+        // Resiko: Ribet kembalian.
+        // INI LOW RISK: Bisa diakali dengan QRIS, mampir minimarket, atau minta customer bayar pas.
+        // Jangan menakuti driver untuk hal yang bisa di-handle di jalan.
+        if (cash < 20000) {
+            // Jika bensin & saldo aman, tapi cash kurang -> Tetap berangkat tapi waspada.
+            return {
+                type: 'NORMAL',
+                icon: Coins,
+                msg: "MODAL KEMBALIAN MINIM",
+                subMsg: "Gak usah panik. Siapkan QRIS di HP atau mampir warung pecahin duit saat ada kesempatan. Fokus cari orderan non-tunai dulu. Bismillah, gas terus!"
+            };
+        }
+
+        // 4. LEVEL KESEMPATAN (Opportunity Mode)
+        // Jika semua parameter hijau (Bensin > 60%, Saldo > 50rb, Cash Aman)
+        if (fuel >= 60 && bal >= 50000 && cash >= 50000) {
+            return {
+                type: 'OPPORTUNITY',
+                icon: Zap,
+                msg: "POSISI SIAP TEMPUR!",
+                subMsg: "Amunisi lengkap. Jangan buang waktu ambil orderan 'sampah'. Fokus cari orderan kakap/jarak jauh karena modal dan bensin mendukung. Bismillah, target tembus!"
+            };
+        }
+
+        // 5. DEFAULT (Normal Mode)
+        return {
+            type: 'NORMAL',
+            icon: CheckCircle2,
+            msg: "KONDISI STANDAR",
+            subMsg: "Motor sehat, akun aman. Fokus nyetir yang halus, senyum ke penumpang. Rezeki sudah ada yang atur. Bismillah, berangkat!"
+        };
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
@@ -28,19 +98,13 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
         if (isNaN(balanceVal)) { setError("Saldo aplikator harus diisi."); return; }
         if (isNaN(cashVal)) { setError("Uang pegangan harus diisi."); return; }
         
+        // Generate Briefing Data
+        const advice = generatePreFlightBriefing(balanceVal, cashVal, fuel);
+        
+        // Tentukan status shift untuk database
         let status: ShiftState['status'] = 'SAFE';
-        let rec = "MODAL AMAN. Fokus cari orderan kakap & jauh!";
-
-        if (balanceVal < 10000) {
-            status = 'CRITICAL';
-            rec = "SALDO KRITIS! Wajib Topup min 20rb atau orderan anyep.";
-        } else if (fuel <= 20) {
-            status = 'WARNING';
-            rec = "BENSIN TIRIS. Jangan ambil orderan jauh/macet.";
-        } else if (balanceVal < 30000) {
-            status = 'WARNING';
-            rec = "SALDO TIPIS. Prioritaskan orderan tunai/pendek.";
-        }
+        if (advice.type === 'CRITICAL') status = 'CRITICAL';
+        if (advice.type === 'WARNING') status = 'WARNING';
 
         const newState: ShiftState = {
             date: getLocalDateString(),
@@ -49,15 +113,47 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
             startFuel: fuel,
             startTime: existing ? existing.startTime : Date.now(),
             status: status,
-            recommendation: rec
+            recommendation: advice.msg
         };
 
         saveShiftState(newState);
-        onComplete();
+        
+        // Tampilkan Modal Briefing
+        setBriefing({
+            show: true,
+            msg: advice.msg,
+            subMsg: advice.subMsg,
+            type: advice.type as any,
+            icon: advice.icon
+        });
     };
+
+    const handleConfirmBriefing = () => {
+        setBriefing(null);
+        onComplete();
+    }
 
     const handleMoneyChange = (val: string, setter: React.Dispatch<React.SetStateAction<string>>) => {
         setter(formatCurrencyInput(val));
+    }
+
+    // Color logic for Briefing Modal
+    const getBriefingColor = (type: string) => {
+        switch(type) {
+            case 'CRITICAL': return 'bg-red-900/40 border-red-500 text-red-100';
+            case 'WARNING': return 'bg-amber-900/40 border-amber-500 text-amber-100';
+            case 'OPPORTUNITY': return 'bg-emerald-900/40 border-emerald-500 text-emerald-100';
+            default: return 'bg-blue-900/40 border-blue-500 text-blue-100';
+        }
+    }
+    
+    const getIconColor = (type: string) => {
+        switch(type) {
+            case 'CRITICAL': return 'text-red-500 bg-red-500/20';
+            case 'WARNING': return 'text-amber-500 bg-amber-500/20';
+            case 'OPPORTUNITY': return 'text-emerald-500 bg-emerald-500/20';
+            default: return 'text-blue-500 bg-blue-500/20';
+        }
     }
 
     return (
@@ -108,7 +204,7 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
                     {/* 2. CASH CARD */}
                     <div className="glass-panel p-5 rounded-3xl relative overflow-hidden group focus-within:border-emerald-500/50 transition-colors">
                          <div className="absolute top-0 right-0 p-4 opacity-20 group-focus-within:opacity-50 transition-opacity">
-                            <Wallet size={48} />
+                            <Banknote size={48} />
                         </div>
                         <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Uang Tunai (Cash)</label>
                         <div className="flex items-baseline gap-1">
@@ -170,6 +266,41 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
 
                 </form>
             </div>
+
+            {/* BRIEFING POPUP OVERLAY */}
+            {briefing && briefing.show && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/90 backdrop-blur-md animate-in fade-in duration-300">
+                    <div className={`w-full max-w-sm rounded-3xl p-1 border shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-300 ${getBriefingColor(briefing.type)}`}>
+                        
+                        <div className="bg-[#121212] rounded-[22px] p-6 h-full flex flex-col items-center text-center relative overflow-hidden">
+                             {/* Background Glow */}
+                            <div className={`absolute -top-20 -right-20 w-60 h-60 rounded-full blur-[60px] opacity-20 ${briefing.type === 'CRITICAL' ? 'bg-red-500' : briefing.type === 'WARNING' ? 'bg-amber-500' : briefing.type === 'OPPORTUNITY' ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
+
+                            {/* Icon Ring */}
+                            <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-5 ${getIconColor(briefing.type)}`}>
+                                <briefing.icon size={36} />
+                            </div>
+                            
+                            <h3 className="text-xl font-black text-white uppercase tracking-tight mb-3 leading-none">
+                                {briefing.msg}
+                            </h3>
+                            
+                            <div className="bg-white/5 p-4 rounded-xl border border-white/5 mb-6">
+                                <p className="text-gray-300 text-sm leading-relaxed font-medium">
+                                    "{briefing.subMsg}"
+                                </p>
+                            </div>
+
+                            <button 
+                                onClick={handleConfirmBriefing}
+                                className={`w-full py-4 font-black rounded-xl shadow-lg flex justify-center items-center gap-2 active:scale-95 transition-transform text-black ${briefing.type === 'CRITICAL' ? 'bg-red-500 hover:bg-red-400' : 'bg-app-primary hover:bg-yellow-400'}`}
+                            >
+                                <ArrowRight size={20} strokeWidth={3} /> LANJUT
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

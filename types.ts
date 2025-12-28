@@ -89,11 +89,23 @@ export interface DailyFinancial {
 
 // Perisai Driver (Garage & Safety)
 export interface GarageData {
-  emergencyContact: string; // WhatsApp Number (e.g., 6281xxx)
+  bikeName?: string; // NEW: Nama motor (e.g. "Si Merah")
+  plateNumber?: string; // NEW: Plat Nomor
+  emergencyContact: string; // WhatsApp Number
+  
   currentOdometer: number; // Total KM Motor
+  
+  // Maintenance Trackers
   lastOilChangeKm: number; // KM saat ganti oli terakhir
-  serviceInterval: number; // KM Interval Ganti Oli (Default 2000)
-  lastTireChangeDate: string; // ISO Date
+  serviceInterval: number; // Default 2000
+  
+  lastTireChangeKm?: number; // NEW: KM ganti ban terakhir
+  tireInterval?: number; // NEW: Default 12000
+  
+  lastPartChangeKm?: number; // NEW: KM ganti V-Belt/Rantai
+  partInterval?: number; // NEW: Default 20000
+
+  // Legal Trackers
   stnkExpiryDate: string; // ISO Date
   simExpiryDate: string; // ISO Date
 }

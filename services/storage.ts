@@ -296,28 +296,31 @@ export const getTodayFinancials = (): DailyFinancial => {
 }
 
 export const getGarageData = (): GarageData => {
+    const defaultData: GarageData = {
+        bikeName: 'Kuda Besi',
+        plateNumber: '',
+        emergencyContact: '',
+        currentOdometer: 0,
+        lastOilChangeKm: 0,
+        serviceInterval: 2000, 
+        lastTireChangeKm: 0,
+        tireInterval: 12000,
+        lastPartChangeKm: 0,
+        partInterval: 20000,
+        stnkExpiryDate: '',
+        simExpiryDate: ''
+    };
+
     try {
         const stored = localStorage.getItem(GARAGE_KEY);
-        if (stored) return JSON.parse(stored);
-        return {
-            emergencyContact: '',
-            currentOdometer: 0,
-            lastOilChangeKm: 0,
-            serviceInterval: 2000, 
-            lastTireChangeDate: '',
-            stnkExpiryDate: '',
-            simExpiryDate: ''
-        };
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            // Merge dengan default untuk properti baru yang mungkin belum ada di user lama
+            return { ...defaultData, ...parsed };
+        }
+        return defaultData;
     } catch (e) {
-        return {
-             emergencyContact: '',
-             currentOdometer: 0,
-             lastOilChangeKm: 0,
-             serviceInterval: 2000,
-             lastTireChangeDate: '',
-             stnkExpiryDate: '',
-             simExpiryDate: ''
-        };
+        return defaultData;
     }
 }
 

@@ -4,7 +4,7 @@ import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftStat
 import { calculateDistance, vibrate, playSound } from '../utils';
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings, getTransactions } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal, Rabbit, Crosshair, Flame } from 'lucide-react';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal, Rabbit, Crosshair, Flame, Target } from 'lucide-react';
 
 const DriverHelmetIcon = ({ size = 24, className = "" }: {size?: number, className?: string}) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -32,6 +32,7 @@ interface ScoredHotspot extends Hotspot {
     isMaintenance?: boolean;
     matchReason?: string;
     priorityLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+    strategyMatch: boolean; // NEW: Apakah sesuai banget sama strategi?
 }
 
 type QuickFilterType = 'ALL' | 'FOOD' | 'BIKE' | 'SEND';
@@ -103,7 +104,6 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         setSettings(getUserSettings());
   };
 
-  // LOGIC FIX: Momentum Calculation Awareness
   const calculateMomentum = () => {
       const txs = getTransactions();
       const now = Date.now();
@@ -129,15 +129,18 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
       setMomentumScore(Math.min(100, score));
   }
 
+  // LOGIC REVISI: Golden Time Dynamic based on Strategy
   const getGoldenTimeStatus = (): { active: boolean, label: string, color: string } => {
       const hour = currentTime.fullDate.getHours();
       const strat = shiftState?.strategy || 'FEEDER';
 
       if (strat === 'SNIPER') {
+          // Sniper Golden Time: 22.00 - 04.00
           if (hour >= 22 || hour < 4) return { active: true, label: 'GOLDEN TIME: NGALONG', color: 'text-purple-400' };
           if (hour >= 18 && hour < 22) return { active: false, label: 'WARMING UP', color: 'text-blue-400' };
           return { active: false, label: 'OFF DUTY', color: 'text-gray-600' };
       } else {
+          // Feeder Golden Time: Rush Hours
           if (hour >= 6 && hour < 9) return { active: true, label: 'GOLDEN TIME: PAGI', color: 'text-amber-400' };
           if (hour >= 11 && hour < 13) return { active: true, label: 'GOLDEN TIME: SIANG', color: 'text-orange-400' };
           if (hour >= 16 && hour < 19) return { active: true, label: 'GOLDEN TIME: SORE', color: 'text-emerald-400' };
@@ -176,7 +179,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
       vibrate(10); playSound(isAccurate ? 'success' : 'click'); onToast(isAccurate ? "Validasi: Gacor! (Disimpan)" : "Validasi: Anyep (Dihindari)");
   };
 
-  // LOGIC FIX: Scoring Algorithm is now Strategy Aware
+  // --- CORE RANKING ALGORITHM ---
   const predictions: ScoredHotspot[] = useMemo(() => {
     const currentHour = currentTime.fullDate.getHours();
     const currentMinute = currentTime.fullDate.getMinutes();
@@ -194,6 +197,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         let score = h.baseScore ? (h.baseScore * 10) : 500; 
         let reasons: string[] = [];
         let distance = 0; 
+        let strategyMatch = false;
 
         if (userLocation && gpsReady) {
             distance = calculateDistance(userLocation.lat, userLocation.lng, h.lat, h.lng);
@@ -220,17 +224,20 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         // --- STRATEGY MULTIPLIER (THE BRAIN) ---
         if (strategy === 'SNIPER') {
             // Sniper likes Hubs, Malls, Long Distance potential
-            if (['Transport Hub', 'Mall/Lifestyle', 'Culinary Night', 'Commercial'].includes(h.category)) {
-                score += 500;
-                reasons.unshift("Spot Kakap");
+            if (['Transport Hub', 'Mall/Lifestyle', 'Culinary Night', 'Commercial', 'Logistics'].includes(h.category)) {
+                score += 800; // HUGE BOOST
+                strategyMatch = true;
+                reasons.unshift("🎯 Target Sniper");
             } else if (['Residential', 'School', 'Education'].includes(h.category)) {
-                score -= 300; // Hindari receh anak sekolah
+                score -= 1000; // HEAVY PENALTY (Noise Reduction)
+                reasons.push("Receh (Hindari)");
             }
         } else {
             // Feeder likes Residential, School, Quick trips
             if (['Residential', 'Education', 'School', 'Residential/Shop'].includes(h.category)) {
                 score += 500;
-                reasons.unshift("Spot Feeder");
+                strategyMatch = true;
+                reasons.unshift("⚡ Fast Track");
             }
             // Proximity is king for Feeder
             if (distance < 2) score += 400;
@@ -244,7 +251,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         }
 
         let priority: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
-        if (score > 1000) priority = 'HIGH';
+        if (score > 1200) priority = 'HIGH';
         else if (score > 600) priority = 'MEDIUM';
 
         if (isRainMode) {
@@ -252,9 +259,10 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
              else score -= 500; 
         }
 
-        return { ...h, distance, score: Math.round(score), matchReason: reasons[0] || (score > 600 ? "Potensi" : "Alternatif"), isMaintenance, priorityLevel: priority };
+        return { ...h, distance, score: Math.round(score), matchReason: reasons[0] || (score > 600 ? "Potensi" : "Alternatif"), isMaintenance, priorityLevel: priority, strategyMatch };
     });
 
+    // Filter out negative scores entirely to reduce noise
     return scored.filter(s => s.score > 0 || s.isMaintenance).sort((a, b) => b.score - a.score).slice(0, 7);
   }, [localHotspots, currentTime, isRainMode, financials, userLocation, gpsReady, shiftState, settings, quickFilter, garage]);
 
@@ -306,7 +314,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
           </div>
       </div>
 
-      {/* MOMENTUM & SERVER STATUS CARD (NEW) */}
+      {/* MOMENTUM & SERVER STATUS CARD */}
       <div className="bg-[#1a1a1a] rounded-2xl p-4 border border-gray-800 relative overflow-hidden">
           <div className="flex justify-between items-center mb-3">
               <div className="flex items-center gap-2">
@@ -327,16 +335,28 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
           </div>
           <div className="flex justify-between mt-1 text-[9px] font-mono text-gray-500">
               <span>DINGIN</span>
-              <span>HANGAT (FEEDING)</span>
-              <span>PANAS (GACOR)</span>
+              <span>HANGAT</span>
+              <span>GACOR</span>
           </div>
 
-          {momentumScore < 20 && shiftState?.strategy === 'FEEDER' && (
-              <div className="mt-3 p-2 bg-blue-900/20 border border-blue-800 rounded-lg flex items-start gap-2">
-                  <Zap size={12} className="text-blue-400 mt-0.5" />
-                  <p className="text-[10px] text-blue-200 leading-tight">
-                      <strong>Akun Dingin?</strong> "Cocol" manual orderan pendek sekarang untuk memancing server (Feeding). Jangan cancel!
-                  </p>
+          {/* DYNAMIC MOMENTUM ADVICE */}
+          {momentumScore < 20 && (
+              <div className={`mt-3 p-2 border rounded-lg flex items-start gap-2 ${shiftState?.strategy === 'SNIPER' ? 'bg-purple-900/20 border-purple-800' : 'bg-blue-900/20 border-blue-800'}`}>
+                  {shiftState?.strategy === 'SNIPER' ? (
+                      <>
+                        <Target size={12} className="text-purple-400 mt-0.5" />
+                        <p className="text-[10px] text-purple-200 leading-tight">
+                            <strong>Mental Baja!</strong> Akun dingin hal biasa buat Sniper. Tunggu satu tarikan besar, jangan panik ambil receh. Sabar!
+                        </p>
+                      </>
+                  ) : (
+                      <>
+                        <Zap size={12} className="text-blue-400 mt-0.5" />
+                        <p className="text-[10px] text-blue-200 leading-tight">
+                            <strong>Akun Dingin?</strong> "Cocol" manual orderan pendek sekarang untuk memancing server (Feeding). Jangan cancel!
+                        </p>
+                      </>
+                  )}
               </div>
           )}
       </div>
@@ -427,7 +447,11 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
                 <div className="py-12 px-6 text-center rounded-3xl bg-[#1a1a1a] border border-dashed border-gray-800 space-y-4">
                     <div className="w-16 h-16 bg-gray-900 rounded-full flex items-center justify-center mx-auto mb-3 border border-gray-800"><Skull size={28} className="text-gray-600" /></div>
                     <p className="text-gray-300 font-bold">Zona Anyep</p>
-                    <p className="text-xs text-gray-500 max-w-[200px] mx-auto">Tidak ada hotspot relevan di jam {currentTime.timeString}. Coba geser lokasi atau matikan filter.</p>
+                    <p className="text-xs text-gray-500 max-w-[250px] mx-auto leading-relaxed">
+                        {shiftState?.strategy === 'SNIPER' 
+                            ? "Sabar Ndan. Coba geser ke Stasiun, Bandara, atau Pusat Kota 24 Jam." 
+                            : "Sepi orderan? Coba geser ke Perumahan Padat atau Pusat Jajanan."}
+                    </p>
                     {quickFilter !== 'ALL' && <button onClick={() => setQuickFilter('ALL')} className="px-4 py-2 bg-gray-800 rounded-xl text-white text-xs font-bold flex items-center gap-2 mx-auto hover:bg-gray-700"><RotateCcw size={14}/> Reset Filter</button>}
                 </div>
             ) : (
@@ -441,9 +465,14 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
                         <div className="relative z-10">
                             <div className="flex justify-between items-start mb-4">
                                 <div className="flex flex-wrap gap-1.5">
-                                    {spot.priorityLevel === 'HIGH' && <span className="text-[9px] bg-emerald-500 text-black px-2 py-1 rounded font-black uppercase inline-flex items-center gap-1"><TrendingUp size={10}/> Gacor</span>}
+                                    {/* Strategy Match Badge */}
+                                    {spot.strategyMatch && (
+                                        <span className={`text-[9px] px-2 py-1 rounded font-black uppercase inline-flex items-center gap-1 ${shiftState?.strategy === 'SNIPER' ? 'bg-purple-600 text-white' : 'bg-emerald-500 text-black'}`}>
+                                            {shiftState?.strategy === 'SNIPER' ? <Crosshair size={10}/> : <Rabbit size={10}/>} {shiftState?.strategy === 'SNIPER' ? 'TARGET KAKAP' : 'FEEDER SPOT'}
+                                        </span>
+                                    )}
+                                    {spot.priorityLevel === 'HIGH' && !spot.strategyMatch && <span className="text-[9px] bg-emerald-900/30 text-emerald-400 px-2 py-1 rounded font-black uppercase inline-flex items-center gap-1"><TrendingUp size={10}/> Potensial</span>}
                                     <span className="text-[9px] bg-gray-800 text-gray-300 px-2 py-1 rounded font-bold uppercase inline-flex items-center gap-1"><Clock size={10}/> {spot.predicted_hour}</span>
-                                    {spot.isDaily ? <span className="text-[9px] bg-blue-900/30 text-blue-400 px-2 py-1 rounded font-bold uppercase">Rutin</span> : <span className="text-[9px] bg-purple-900/30 text-purple-400 px-2 py-1 rounded font-bold uppercase">{spot.day}</span>}
                                 </div>
                                 <div className="text-right">
                                      <span className={`text-3xl font-black leading-none font-mono ${gpsReady ? 'text-white' : 'text-gray-600'}`}>{gpsReady ? spot.distance : '-'}</span>

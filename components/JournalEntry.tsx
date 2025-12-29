@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Hotspot, Transaction } from '../types';
+import { Hotspot, Transaction, ShiftState } from '../types';
 import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate, playSound } from '../utils';
 import { MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, X, Save, CreditCard, Banknote, Mic, Zap, ChevronRight, RotateCcw } from 'lucide-react';
 import { addHotspot, addTransaction } from '../services/storage';
@@ -8,6 +8,7 @@ import CustomDialog from './CustomDialog';
 
 interface JournalEntryProps {
   currentTime: { dayName: string; timeString: string; fullDate: Date; };
+  shiftState: ShiftState | null; // NEW: Strategy Awareness
   onSaved: () => void;
 }
 
@@ -16,7 +17,7 @@ type ServiceType = 'Bike' | 'Food' | 'Send' | 'Shop';
 
 interface IWindow extends Window { webkitSpeechRecognition: any; SpeechRecognition: any; }
 
-const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => {
+const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, shiftState, onSaved }) => {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -34,7 +35,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   const voiceTimeoutRef = useRef<any>(null); // Watchdog
 
   // Alert State
-  const [alert, setAlert] = useState<{show: boolean, msg: string}>({show: false, msg: ''});
+  const [alert, setAlert] = useState<{show: boolean, type: 'alert'|'info'|'confirm', title: string, msg: string}>({show: false, type:'alert', title:'', msg: ''});
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -140,7 +141,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       const Win = window as unknown as IWindow;
       const Speech = Win.SpeechRecognition || Win.webkitSpeechRecognition;
 
-      if (!Speech) { setAlert({show: true, msg: "Browser tidak support voice input."}); return; }
+      if (!Speech) { setAlert({show: true, type:'alert', title:'Error', msg: "Browser tidak support voice input."}); return; }
 
       if (isListening) { 
           stopVoice();
@@ -195,13 +196,37 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   const saveLogic = () => {
     const argoVal = parseCurrencyInput(argoRaw);
     if (!argoVal || isNaN(argoVal) || argoVal <= 0) { 
-        setAlert({show: true, msg: "Nominal belum diisi!"}); 
+        setAlert({show: true, type:'alert', title:'Gagal', msg: "Nominal belum diisi!"}); 
         return; 
     }
 
     setIsSubmitting(true);
     vibrate(50);
     playSound('success');
+
+    // --- STRATEGY FEEDBACK GENERATOR ---
+    const strategy = shiftState?.strategy || 'FEEDER';
+    let feedbackTitle = "Disimpan!";
+    let feedbackMsg = "Data orderan berhasil dicatat.";
+
+    if (strategy === 'SNIPER') {
+        if (argoVal >= 30000) {
+            feedbackTitle = "JACKPOT SNIPER! 🎯";
+            feedbackMsg = "Nah ini dia! Kakap berhasil diamankan. Penantian tidak sia-sia Ndan!";
+        } else if (argoVal < 12000) {
+            feedbackTitle = "Receh Diamankan";
+            feedbackMsg = "Lumayan buat beli bensin. Tapi ingat, fokus kita orderan Kakap ya!";
+        }
+    } else {
+        // FEEDER
+        if (argoVal < 20000) {
+             feedbackTitle = "GASS TERUS! 🐇";
+             feedbackMsg = "Satu lagi orderan selesai. Momentum 'Bola Salju' makin besar!";
+        } else if (argoVal > 40000) {
+             feedbackTitle = "BONUS BESAR!";
+             feedbackMsg = "Rezeki anak soleh. Udah quantity banyak, dapet kakap juga!";
+        }
+    }
 
     let category: Hotspot['category'] = 'Other';
     if (serviceType === 'Food') category = 'Culinary';
@@ -240,7 +265,21 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
     };
     addTransaction(newTx);
     
-    setTimeout(() => { setIsSubmitting(false); onSaved(); }, 800);
+    // Show Feedback Alert before closing
+    setAlert({
+        show: true,
+        type: 'info',
+        title: feedbackTitle,
+        msg: feedbackMsg
+    });
+  }
+
+  const handleAlertClose = () => {
+      setAlert({show: false, type:'info', title:'', msg:''});
+      if (isSubmitting) { // Only navigate back if it was a success submission
+          setIsSubmitting(false);
+          onSaved();
+      }
   }
 
   const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); saveLogic(); };
@@ -259,7 +298,13 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
   return (
     <div className="h-full flex flex-col bg-black pb-32">
-      <CustomDialog isOpen={alert.show} type="alert" title="Info" message={alert.msg} onConfirm={() => setAlert({show: false, msg: ''})} />
+      <CustomDialog 
+        isOpen={alert.show} 
+        type={alert.type} 
+        title={alert.title} 
+        message={alert.msg} 
+        onConfirm={handleAlertClose} 
+      />
 
       <form onSubmit={handleSubmit} className="flex-1 flex flex-col pt-6 px-5 space-y-6">
           

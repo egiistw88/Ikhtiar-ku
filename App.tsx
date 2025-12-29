@@ -78,7 +78,7 @@ const App: React.FC = () => {
   if (loading) return <SplashView onFinish={() => setLoading(false)} />;
   if (view === 'setup') return <PreRideSetup onComplete={handleSetupComplete} />;
   if (view === 'settings') return <SettingsView onBack={() => setView('radar')} onUpdateCondition={() => setView('setup')} />;
-  if (view === 'summary') return <ShiftSummary financials={summaryData?.finance || null} onClose={handleCloseSummary} />;
+  if (view === 'summary') return <ShiftSummary financials={summaryData?.finance || null} shiftState={shiftState} onClose={handleCloseSummary} />;
 
   return (
     <div className="h-[100dvh] w-full flex flex-col bg-black text-gray-100 relative overflow-hidden font-sans">
@@ -95,7 +95,7 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto no-scrollbar pb-40 relative">
         {view === 'radar' && <RadarView hotspots={hotspots} currentTime={currentTime} shiftState={shiftState} onOpenSettings={() => setView('settings')} onOpenSummary={handleOpenSummary} onRequestRest={handleStartRest} onToast={showToast} />}
         {view === 'map' && <MapView hotspots={hotspots} currentTime={currentTime} shiftState={shiftState} />}
-        {view === 'journal' && <JournalEntry currentTime={currentTime} onSaved={() => { handleRefreshData(); showToast("Data Disimpan!"); }} />}
+        {view === 'journal' && <JournalEntry currentTime={currentTime} shiftState={shiftState} onSaved={() => { handleRefreshData(); }} />}
         {view === 'wallet' && <WalletView shiftState={shiftState} onToast={showToast} />}
         {view === 'garage' && <GarageView />}
       </main>

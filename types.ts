@@ -40,6 +40,8 @@ export interface UserSettings {
   autoRainMode: boolean; // Future feature: auto detect weather
 }
 
+export type StrategyType = 'FEEDER' | 'SNIPER';
+
 // Modal Awal & Kesiapan (New Feature)
 export interface ShiftState {
     date: string; // ISO Date "YYYY-MM-DD"
@@ -49,6 +51,7 @@ export interface ShiftState {
     startTime: number; // Timestamp ms
     status: 'CRITICAL' | 'WARNING' | 'SAFE';
     recommendation: string;
+    strategy: StrategyType; // NEW: Pilihan strategi main hari ini
     
     // NEW: Rest Mode Data
     restData?: {

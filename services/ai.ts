@@ -46,18 +46,21 @@ const generateLocalStrategy = (
 ): string => {
     const now = new Date();
     const hour = now.getHours();
+    const strategy = shift?.strategy || 'FEEDER';
 
-    if (shift) {
-        if (shift.startBalance < 20000) return "Duh Ndan, saldo segitu mau narik apa mau sedekah? 😅 Topup dulu gih minimal ceban, biar akun gak gagu! Jangan lupa Bismillah.";
-        if (shift.startFuel < 15) return "Bensin kedip-kedip kok masih nekat? Isi dulu full tank Ndan. Rezeki gak bakal lari, tapi motor lu bisa mogok! ⛽";
+    // LOGIKA SNIPER (MALAM)
+    if (strategy === 'SNIPER') {
+        if (hour >= 22 || hour < 4) return "Mode Sniper Aktif. Incar orderan jarak jauh/kakap. Jangan ambil receh bikin capek. Sabar, satu order kakap nutup 3 orderan teri.";
+        if (hour >= 18 && hour < 22) return "Pemanasan Ngalong. Geser ke area Mall atau Perkantoran lembur. Cari yang pulang jauh.";
+        return "Siang istirahat aja Ndan. Sniper mainnya malam saat jalanan kosong & harga bersahabat.";
     }
 
-    if (hour >= 5 && hour < 10) return "Masih pagi jangan bengong! Geser ke Perumahan sekarang. Orang berangkat kerja butuh tumpangan, bukan driver yang ngetem doang! 🚀";
-    if (hour >= 11 && hour < 14) return "Perut orang kantoran udah bunyi tuh. Merapat ke Pusat Kuliner/Mall sekarang! Orderan Food lagi deres, sikat Ndan! 🍔";
-    if (hour >= 16 && hour < 20) return "Jam pulang kerja Ndan! Standby di Stasiun atau Halte. Karyawan capek butuh tumpangan cepet, jangan kasih kendor! 🌧️";
-    if (hour >= 20) return "Malam minggu kelabu? Geser ke Kuliner Malam. Masih ada harapan orderan martabak atau mahasiswa laper. Gas! 🌙";
+    // LOGIKA FEEDER (PAGI/SORE)
+    if (hour >= 6 && hour < 9) return "GOLDEN TIME PAGI! Waktunya 'Feeding Server'. Ambil semua orderan pendek anak sekolah/kantor. Jangan pilih-pilih, bangun riwayat akun!";
+    if (hour >= 11 && hour < 13) return "GOLDEN TIME SIANG! Orang lapar galak. Merapat ke Gacoan/McD/Pusat Kuliner. Food lagi deras.";
+    if (hour >= 16 && hour < 19) return "GOLDEN TIME SORE! Macet = Cuan. Standby di Stasiun/Halte. Sikat orderan pendek estafet.";
 
-    return "Anyep ya? Jangan diem aja kayak patung. Geser 500m ke arah keramaian. Rezeki harus dijemput, bukan ditungguin doang!";
+    return "Akun Anyep? Lakukan 'Cocol' Manual orderan terdekat untuk memancing server (Pancingan). Jangan cancel! Satu order manual membuka keran order otomatis.";
 };
 
 export const generateDriverStrategy = async (
@@ -73,6 +76,7 @@ export const generateDriverStrategy = async (
         const model = 'gemini-3-flash-preview'; 
         const now = new Date();
         const timeStr = `${now.getHours()}:${now.getMinutes()}`;
+        const strategy = shift?.strategy || 'FEEDER';
 
         // Data Cleaning
         const topSpots = hotspots.slice(0, 3).map(h => 
@@ -85,26 +89,34 @@ export const generateDriverStrategy = async (
         const target = financials ? financials.target : 150000;
 
         const prompt = `
-            Bertindaklah sebagai "Korlap Ojol Senior" yang SARKAS, LUGAS, CEPLAS-CEPLOS, tapi SEBENARNYA PEDULI (Tough Love).
+            Bertindaklah sebagai "Suhu Ojol Jalanan" yang paham algoritma server (Feeding Server, Golden Time, Snowball Effect).
+            Gaya bahasa: SARKAS, LUGAS, TEGAS, TAPI PEDULI (Tough Love). Panggil "Ndan".
 
-            DATA LAPANGAN:
-            - Jam: ${timeStr}
-            - Saldo: Rp${saldo} (Aman > 30rb)
+            DATA DRIVER:
+            - Strategi Hari Ini: ${strategy} (${strategy === 'SNIPER' ? 'Fokus Kualitas/Jarak Jauh/Malam' : 'Fokus Kuantitas/Jarak Pendek/Pagi-Sore'})
+            - Jam Sekarang: ${timeStr}
+            - Saldo: Rp${saldo}
             - Bensin: ${bensin}%
-            - Pendapatan: Rp${income} (Target Rp${target})
-            - Radar: ${topSpots || "Kosong"}
+            - Radar Terdekat: ${topSpots || "Kosong"}
 
-            INSTRUKSI JAWABAN (WAJIB):
-            1. Buat hanya 2-3 kalimat pendek.
-            2. Kalimat 1: Sindir kondisinya (saldo tipis/pendapatan nol/bensin sekarat/masih ngetem).
-            3. Kalimat 2: Perintah tegas suruh geser ke lokasi spesifik (pilih dari data Radar atau logika jam).
-            4. Kalimat 3: Kalimat penutup penuh semangat/doa singkat.
-            5. GAYA BAHASA: Tongkrongan driver ("Ndan", "Lu", "Gass"). Jangan kaku.
-            6. PASTIKAN KALIMAT SELESAI (JANGAN TERPOTONG).
+            RAHASIA ALGORITMA (Jadikan landasan saran):
+            1. "Feeding Server" (06-09, 11-13, 16-19): Ambil semua orderan pendek untuk bangun riwayat (Snowball).
+            2. "Cocol Manual": Jika anyep, sarankan ambil manual orderan terdekat (Pancingan) tapi JANGAN CANCEL.
+            3. "Sniper/Ngalong": Jika strategi SNIPER, suruh sabar tunggu kakap, jangan ambil receh.
+            4. "Konsistensi": Jangan pindah-pindah tempat acak.
 
-            Contoh Output Bagus:
-            "Woy Ndan, ngopi mulu kapan kayanya? Saldo lu memprihatinkan tuh. Geser ke Mall PVJ sekarang, orderan Food lagi banjir disana. Sikat sebelum disamber orang, Gass! 🔥"
+            INSTRUKSI OUTPUT:
+            1. Berikan saran spesifik berdasarkan Strategi (${strategy}) dan Jam (${timeStr}).
+            2. Jika jam Golden Time dan strategi FEEDER: Suruh sikat semua orderan pendek.
+            3. Jika akun anyep: Sarankan Cocol Manual buat pancingan.
+            4. Maksimal 3 kalimat pendek.
+
+            Contoh Output (FEEDER):
+            "Woy Ndan, ini jam Golden Time (06-09)! Jangan ngetem doang. Sikat orderan anak sekolah jarak pendek buat 'Feeding Server'. Biar akun lu enteng seharian!"
             
+            Contoh Output (SNIPER):
+            "Mode Sniper aktif kan? Tahan nafsu liat orderan receh. Geser ke Stasiun, tunggu yang arah luar kota. Satu kakap nutup target seharian. Sabar!"
+
             JAWAB SEKARANG:
         `;
 
@@ -113,7 +125,7 @@ export const generateDriverStrategy = async (
             contents: prompt,
             config: {
                 temperature: 0.85, 
-                maxOutputTokens: 1000, // NAIKKAN JAUH AGAR TIDAK TERPOTONG
+                maxOutputTokens: 1000, 
             }
         });
 

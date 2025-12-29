@@ -1,9 +1,9 @@
 
 import React, { useState } from 'react';
-import { ShiftState } from '../types';
+import { ShiftState, StrategyType } from '../types';
 import { saveShiftState, getShiftState } from '../services/storage';
 import { getLocalDateString, formatCurrencyInput, parseCurrencyInput } from '../utils';
-import { Wallet, ArrowRight, Fuel, AlertTriangle, RefreshCw, CheckCircle2, Gauge, Zap, Banknote, ShieldAlert, Coins } from 'lucide-react';
+import { Wallet, ArrowRight, Fuel, AlertTriangle, RefreshCw, CheckCircle2, Gauge, Zap, Banknote, ShieldAlert, Coins, Rabbit, Crosshair } from 'lucide-react';
 
 interface PreRideSetupProps {
     onComplete: () => void;
@@ -16,76 +16,56 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
     const [balanceRaw, setBalanceRaw] = useState<string>(existing ? formatCurrencyInput(existing.startBalance.toString()) : '');
     const [cashRaw, setCashRaw] = useState<string>(existing ? formatCurrencyInput(existing.startCash.toString()) : '');
     const [fuel, setFuel] = useState<number>(existing ? existing.startFuel : 60);
+    const [strategy, setStrategy] = useState<StrategyType>(existing ? existing.strategy : 'FEEDER');
     const [error, setError] = useState<string | null>(null);
     
     // State untuk Modal Briefing
     const [briefing, setBriefing] = useState<{show: boolean, msg: string, subMsg: string, type: 'CRITICAL' | 'WARNING' | 'OPPORTUNITY' | 'NORMAL', icon: any} | null>(null);
 
     // --- LOGIC ENGINE: SURVIVAL HIERARCHY ---
-    const generatePreFlightBriefing = (bal: number, cash: number, fuel: number) => {
+    const generatePreFlightBriefing = (bal: number, cash: number, fuel: number, strat: StrategyType) => {
         
         // 1. LEVEL BAHAYA FISIK (Bensin)
-        // Resiko: Mogok, Bintang 1, Dorong motor. Tidak bisa di-nego.
         if (fuel <= 15) {
             return {
                 type: 'CRITICAL',
                 icon: Fuel,
                 msg: "JANGAN JUDI DENGAN BENSIN!",
-                subMsg: "Resiko mogok saat bawa penumpang itu fatal (Bintang 1). Mampir SPBU terdekat sekarang juga sebelum nyalakan aplikasi. Bismillah, amanah nomor satu."
+                subMsg: "Resiko mogok saat bawa penumpang itu fatal (Bintang 1). Mampir SPBU terdekat sekarang juga sebelum nyalakan aplikasi."
             };
         }
 
         // 2. LEVEL BAHAYA SISTEM (Saldo Akun)
-        // Resiko: Akun Gagu, cuma dapat order receh/food, prioritas rendah di server.
-        // Ambang batas Maxim biasanya aman di 15rb-20rb untuk auto-assign.
-        if (bal < 10000) {
+        // Sniper butuh saldo lebih besar karena main kakap
+        const minBal = strat === 'SNIPER' ? 30000 : 10000;
+        
+        if (bal < minBal) {
             return {
                 type: 'CRITICAL',
                 icon: ShieldAlert,
-                msg: "AKUN RAWAN ANYEP / GAGU",
-                subMsg: "Saldo di bawah 10rb bikin server 'malas' kasih order auto. Topup ceban (10rb) aja dulu biar akun dianggap aktif. Bismillah, pancingan harus ada."
+                msg: strat === 'SNIPER' ? "SALDO SNIPER TIRIS" : "AKUN RAWAN GAGU",
+                subMsg: strat === 'SNIPER' 
+                    ? "Mau main kakap saldo minimal 30rb Ndan. Topup dulu biar orderan gede masuk." 
+                    : "Saldo di bawah 10rb bikin server 'malas' kasih order auto. Pancingan harus ada."
             };
-        } else if (bal < 25000) {
-            return {
-                type: 'WARNING',
-                icon: Wallet,
-                msg: "SALDO MEPET BATAS AMAN",
-                subMsg: "Masih bisa narik, tapi hati-hati dapat orderan Food/Shop talangan besar. Saran: Ambil 2-3 orderan pendek dulu buat putar modal. Bismillah, rezeki lancar."
-            };
-        }
+        } 
 
-        // 3. LEVEL OPERASIONAL (Uang Tunai)
-        // Resiko: Ribet kembalian.
-        // INI LOW RISK: Bisa diakali dengan QRIS, mampir minimarket, atau minta customer bayar pas.
-        // Jangan menakuti driver untuk hal yang bisa di-handle di jalan.
-        if (cash < 20000) {
-            // Jika bensin & saldo aman, tapi cash kurang -> Tetap berangkat tapi waspada.
-            return {
-                type: 'NORMAL',
-                icon: Coins,
-                msg: "MODAL KEMBALIAN MINIM",
-                subMsg: "Gak usah panik. Siapkan QRIS di HP atau mampir warung pecahin duit saat ada kesempatan. Fokus cari orderan non-tunai dulu. Bismillah, gas terus!"
-            };
-        }
-
-        // 4. LEVEL KESEMPATAN (Opportunity Mode)
-        // Jika semua parameter hijau (Bensin > 60%, Saldo > 50rb, Cash Aman)
-        if (fuel >= 60 && bal >= 50000 && cash >= 50000) {
-            return {
+        // 3. STRATEGY SPECIFIC ADVICE
+        if (strat === 'SNIPER') {
+             return {
                 type: 'OPPORTUNITY',
-                icon: Zap,
-                msg: "POSISI SIAP TEMPUR!",
-                subMsg: "Amunisi lengkap. Jangan buang waktu ambil orderan 'sampah'. Fokus cari orderan kakap/jarak jauh karena modal dan bensin mendukung. Bismillah, target tembus!"
+                icon: Crosshair,
+                msg: "MODE NGALONG/KAKAP AKTIF",
+                subMsg: "Fokus orderan jauh & kakap. Jangan tergoda orderan receh yang bikin capek. Sabar adalah kunci Sniper. Gass!"
+            };
+        } else {
+             return {
+                type: 'NORMAL',
+                icon: Rabbit,
+                msg: "MODE FEEDING SERVER",
+                subMsg: "Fokus kuantitas & jarak pendek. Sikat semua orderan masuk (kecuali fiktif) untuk bangun momentum 'Bola Salju'!"
             };
         }
-
-        // 5. DEFAULT (Normal Mode)
-        return {
-            type: 'NORMAL',
-            icon: CheckCircle2,
-            msg: "KONDISI STANDAR",
-            subMsg: "Motor sehat, akun aman. Fokus nyetir yang halus, senyum ke penumpang. Rezeki sudah ada yang atur. Bismillah, berangkat!"
-        };
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -99,7 +79,7 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
         if (isNaN(cashVal)) { setError("Uang pegangan harus diisi."); return; }
         
         // Generate Briefing Data
-        const advice = generatePreFlightBriefing(balanceVal, cashVal, fuel);
+        const advice = generatePreFlightBriefing(balanceVal, cashVal, fuel, strategy);
         
         // Tentukan status shift untuk database
         let status: ShiftState['status'] = 'SAFE';
@@ -113,7 +93,8 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
             startFuel: fuel,
             startTime: existing ? existing.startTime : Date.now(),
             status: status,
-            recommendation: advice.msg
+            recommendation: advice.msg,
+            strategy: strategy
         };
 
         saveShiftState(newState);
@@ -137,7 +118,6 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
         setter(formatCurrencyInput(val));
     }
 
-    // Color logic for Briefing Modal
     const getBriefingColor = (type: string) => {
         switch(type) {
             case 'CRITICAL': return 'bg-red-900/40 border-red-500 text-red-100';
@@ -158,11 +138,10 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
 
     return (
         <div className="h-full w-full bg-black flex flex-col items-center justify-center p-6 animate-in fade-in duration-500 overflow-y-auto relative">
-            {/* Background Ambience */}
             <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-emerald-900/20 to-transparent pointer-events-none"></div>
 
             <div className="w-full max-w-md relative z-10">
-                <div className="text-center mb-8">
+                <div className="text-center mb-6">
                     <div className="inline-flex items-center justify-center w-16 h-16 bg-[#1a1a1a] rounded-2xl mb-4 border border-gray-800 shadow-neon">
                         <Gauge size={32} className="text-emerald-400" />
                     </div>
@@ -176,7 +155,36 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     
-                    {/* 1. SALDO CARD */}
+                    {/* STRATEGY SELECTOR */}
+                    <div className="glass-panel p-4 rounded-3xl border border-gray-800">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 block text-center">Pilih Strategi Hari Ini</label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button 
+                                type="button" 
+                                onClick={() => setStrategy('FEEDER')}
+                                className={`p-3 rounded-2xl border transition-all flex flex-col items-center gap-2 ${strategy === 'FEEDER' ? 'bg-emerald-900/30 border-emerald-500 text-white' : 'bg-black/30 border-gray-700 text-gray-500 hover:bg-gray-800'}`}
+                            >
+                                <Rabbit size={24} className={strategy === 'FEEDER' ? 'text-emerald-400' : 'text-gray-600'} />
+                                <div>
+                                    <span className="block text-xs font-black uppercase">Feeder (Pagi)</span>
+                                    <span className="block text-[9px] font-medium opacity-70">Main Pendek & Cepat</span>
+                                </div>
+                            </button>
+                            <button 
+                                type="button" 
+                                onClick={() => setStrategy('SNIPER')}
+                                className={`p-3 rounded-2xl border transition-all flex flex-col items-center gap-2 ${strategy === 'SNIPER' ? 'bg-purple-900/30 border-purple-500 text-white' : 'bg-black/30 border-gray-700 text-gray-500 hover:bg-gray-800'}`}
+                            >
+                                <Crosshair size={24} className={strategy === 'SNIPER' ? 'text-purple-400' : 'text-gray-600'} />
+                                <div>
+                                    <span className="block text-xs font-black uppercase">Sniper (Malam)</span>
+                                    <span className="block text-[9px] font-medium opacity-70">Ngalong & Kakap</span>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* SALDO CARD */}
                     <div className="glass-panel p-5 rounded-3xl relative overflow-hidden group focus-within:border-emerald-500/50 transition-colors">
                         <div className="absolute top-0 right-0 p-4 opacity-20 group-focus-within:opacity-50 transition-opacity">
                             <Wallet size={48} />
@@ -194,14 +202,9 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
                                 className="w-full bg-transparent text-4xl font-mono font-bold text-white focus:outline-none placeholder-gray-800"
                             />
                         </div>
-                        {parseInt(balanceRaw.replace(/\./g, '')) < 10000 && balanceRaw !== '' && (
-                            <div className="mt-2 text-red-400 text-xs font-bold flex items-center gap-1">
-                                <AlertTriangle size={12}/> Akun Berisiko Gagu!
-                            </div>
-                        )}
                     </div>
 
-                    {/* 2. CASH CARD */}
+                    {/* CASH CARD */}
                     <div className="glass-panel p-5 rounded-3xl relative overflow-hidden group focus-within:border-emerald-500/50 transition-colors">
                          <div className="absolute top-0 right-0 p-4 opacity-20 group-focus-within:opacity-50 transition-opacity">
                             <Banknote size={48} />
@@ -221,7 +224,7 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
                         </div>
                     </div>
 
-                    {/* 3. FUEL GAUGE */}
+                    {/* FUEL GAUGE */}
                     <div className="glass-panel p-5 rounded-3xl">
                         <div className="flex justify-between items-center mb-4">
                             <label className="flex items-center gap-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
@@ -232,8 +235,6 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
                                 {fuel}%
                             </span>
                         </div>
-                        
-                        {/* Visual Bars for Fuel */}
                         <div className="flex gap-1 h-8 mb-2">
                             {[10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((val) => (
                                 <div 
@@ -243,7 +244,6 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
                                 ></div>
                             ))}
                         </div>
-                        <p className="text-center text-[10px] text-gray-500 uppercase">Tap bar untuk set level</p>
                     </div>
 
                     {error && (
@@ -267,30 +267,23 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
                 </form>
             </div>
 
-            {/* BRIEFING POPUP OVERLAY */}
+            {/* BRIEFING POPUP */}
             {briefing && briefing.show && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/90 backdrop-blur-md animate-in fade-in duration-300">
                     <div className={`w-full max-w-sm rounded-3xl p-1 border shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-300 ${getBriefingColor(briefing.type)}`}>
-                        
                         <div className="bg-[#121212] rounded-[22px] p-6 h-full flex flex-col items-center text-center relative overflow-hidden">
-                             {/* Background Glow */}
                             <div className={`absolute -top-20 -right-20 w-60 h-60 rounded-full blur-[60px] opacity-20 ${briefing.type === 'CRITICAL' ? 'bg-red-500' : briefing.type === 'WARNING' ? 'bg-amber-500' : briefing.type === 'OPPORTUNITY' ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
-
-                            {/* Icon Ring */}
                             <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-5 ${getIconColor(briefing.type)}`}>
                                 <briefing.icon size={36} />
                             </div>
-                            
                             <h3 className="text-xl font-black text-white uppercase tracking-tight mb-3 leading-none">
                                 {briefing.msg}
                             </h3>
-                            
                             <div className="bg-white/5 p-4 rounded-xl border border-white/5 mb-6">
                                 <p className="text-gray-300 text-sm leading-relaxed font-medium">
                                     "{briefing.subMsg}"
                                 </p>
                             </div>
-
                             <button 
                                 onClick={handleConfirmBriefing}
                                 className={`w-full py-4 font-black rounded-xl shadow-lg flex justify-center items-center gap-2 active:scale-95 transition-transform text-black ${briefing.type === 'CRITICAL' ? 'bg-red-500 hover:bg-red-400' : 'bg-app-primary hover:bg-yellow-400'}`}

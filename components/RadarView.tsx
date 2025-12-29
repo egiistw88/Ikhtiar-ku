@@ -1,12 +1,11 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftState } from '../types';
+import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftState, StrategyType } from '../types';
 import { calculateDistance, vibrate, playSound } from '../utils';
-import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings } from '../services/storage';
+import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings, getTransactions } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal } from 'lucide-react';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal, Rabbit, Crosshair, Flame } from 'lucide-react';
 
-// --- SUB-COMPONENT: ICONS ---
 const DriverHelmetIcon = ({ size = 24, className = "" }: {size?: number, className?: string}) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
         <path d="M12 2C7.58172 2 4 5.58172 4 10V14C4 16.2091 5.79086 18 8 18H16C18.2091 18 20 16.2091 20 14V10C20 5.58172 16.4183 2 12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -17,7 +16,6 @@ const DriverHelmetIcon = ({ size = 24, className = "" }: {size?: number, classNa
     </svg>
 );
 
-// --- TYPES ---
 interface RadarViewProps {
   hotspots: Hotspot[];
   currentTime: TimeState;
@@ -38,7 +36,6 @@ interface ScoredHotspot extends Hotspot {
 
 type QuickFilterType = 'ALL' | 'FOOD' | 'BIKE' | 'SEND';
 
-// --- MAIN COMPONENT ---
 export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, currentTime, shiftState, onOpenSettings, onOpenSummary, onRequestRest, onToast }) => {
   const [localHotspots, setLocalHotspots] = useState<Hotspot[]>(initialHotspots);
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
@@ -53,12 +50,14 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [gpsReady, setGpsReady] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
+  
+  // New States for "Street Smart" Logic
+  const [momentumScore, setMomentumScore] = useState(0); // 0-100 Snowball Effect
 
-  // GPS & DATA SYNC ENGINE
   useEffect(() => {
     syncData();
+    calculateMomentum();
     
-    // 1. Initial GPS Watch
     let watchId: number | null = null;
     if (navigator.geolocation) {
         watchId = navigator.geolocation.watchPosition(
@@ -71,17 +70,15 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         );
     }
 
-    // 2. Force Refresh on Resume (Visibility Change)
-    // Driver sering switch app. Saat balik ke sini, GPS harus langsung update.
     const handleResume = () => {
         if (document.visibilityState === 'visible') {
-            syncData(); // Refresh data storage
+            syncData(); 
+            calculateMomentum();
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
                         setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
                         setGpsReady(true);
-                        console.log("GPS Woke Up");
                     },
                     undefined,
                     { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
@@ -91,8 +88,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
     };
     document.addEventListener('visibilitychange', handleResume);
 
-    // 3. Fallback Interval
-    const interval = setInterval(syncData, 30000); 
+    const interval = setInterval(() => { syncData(); calculateMomentum(); }, 30000); 
 
     return () => {
         if (watchId !== null) navigator.geolocation.clearWatch(watchId);
@@ -108,12 +104,37 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         setSettings(getUserSettings());
   };
 
+  const calculateMomentum = () => {
+      // Logic: Snowball Effect. 
+      // Count transactions in last 2 hours.
+      const txs = getTransactions();
+      const now = Date.now();
+      const twoHoursAgo = now - (2 * 60 * 60 * 1000);
+      const recentTx = txs.filter(t => t.timestamp > twoHoursAgo);
+      
+      // Base score: 20 per order. Max 100.
+      const score = Math.min(100, recentTx.length * 25);
+      setMomentumScore(score);
+  }
+
+  const getGoldenTimeStatus = (): { active: boolean, label: string, color: string } => {
+      const hour = currentTime.fullDate.getHours();
+      // Morning Rush (06-09), Lunch (11-13), Evening Rush (16-19)
+      if (hour >= 6 && hour < 9) return { active: true, label: 'GOLDEN TIME: PAGI', color: 'text-amber-400' };
+      if (hour >= 11 && hour < 13) return { active: true, label: 'GOLDEN TIME: SIANG', color: 'text-orange-400' };
+      if (hour >= 16 && hour < 19) return { active: true, label: 'GOLDEN TIME: SORE', color: 'text-purple-400' };
+      // Ngalong Time (22-04)
+      if (hour >= 22 || hour < 4) return { active: true, label: 'WAKTU NGALONG', color: 'text-blue-400' };
+      
+      return { active: false, label: 'JAM NORMAL', color: 'text-gray-500' };
+  };
+
+  const goldenTime = getGoldenTimeStatus();
+
   const handleManualScan = () => {
       vibrate(10);
       playSound('click');
       setIsScanning(true);
-      
-      // Force GPS Update
       if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
             (pos) => {
@@ -124,44 +145,19 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
             { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
           );
       }
-
-      setTimeout(() => {
-          syncData();
-          setIsScanning(false);
-          playSound('success');
-          onToast("Radar diperbarui");
-      }, 1000);
+      setTimeout(() => { syncData(); setIsScanning(false); playSound('success'); onToast("Radar diperbarui"); }, 1000);
   };
 
   const handleAiAnalysis = async () => {
-      vibrate(20);
-      playSound('click');
-      setIsAiLoading(true);
-      setAiAdvice(null);
-      
-      const strategy = await generateDriverStrategy(
-          predictions, 
-          financials, 
-          shiftState, 
-          userLocation
-      );
-      
-      setAiAdvice(strategy);
-      setIsAiLoading(false);
-      vibrate([50, 50, 50]); 
-      playSound('success');
+      vibrate(20); playSound('click'); setIsAiLoading(true); setAiAdvice(null);
+      const strategy = await generateDriverStrategy(predictions, financials, shiftState, userLocation);
+      setAiAdvice(strategy); setIsAiLoading(false); vibrate([50, 50, 50]); playSound('success');
   };
 
   const handleValidation = (id: string, isAccurate: boolean) => {
       toggleValidation(id, isAccurate);
-      setLocalHotspots(prev => prev.map(h => 
-          h.id === id 
-          ? { ...h, validations: [...(h.validations || []), { date: currentTime.fullDate.toISOString().split('T')[0], isAccurate }] } 
-          : h
-      ));
-      vibrate(10);
-      playSound(isAccurate ? 'success' : 'click');
-      onToast(isAccurate ? "Validasi: Gacor! (Disimpan)" : "Validasi: Anyep (Dihindari)");
+      setLocalHotspots(prev => prev.map(h => h.id === id ? { ...h, validations: [...(h.validations || []), { date: currentTime.fullDate.toISOString().split('T')[0], isAccurate }] } : h));
+      vibrate(10); playSound(isAccurate ? 'success' : 'click'); onToast(isAccurate ? "Validasi: Gacor! (Disimpan)" : "Validasi: Anyep (Dihindari)");
   };
 
   const predictions: ScoredHotspot[] = useMemo(() => {
@@ -169,7 +165,6 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
     const currentMinute = currentTime.fullDate.getMinutes();
     const currentTotalMinutes = currentHour * 60 + currentMinute;
     
-    // Filter & Score Logic
     const candidates = localHotspots.filter(h => {
         if (quickFilter === 'FOOD') return (h.category.includes('Culinary') || h.type === 'Food' || h.type.includes('Shop') || h.category === 'Mall/Lifestyle');
         if (quickFilter === 'BIKE') return (h.type.includes('Bike') || h.type === 'Ride' || h.category === 'Residential' || h.category === 'Transport Hub');
@@ -208,9 +203,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         const maintenanceInterval = garage?.serviceInterval || 2000;
         const kmSinceOil = (garage?.currentOdometer || 0) - (garage?.lastOilChangeKm || 0);
         if (kmSinceOil > maintenanceInterval && h.category === 'Service') {
-            score += 5000; 
-            isMaintenance = true;
-            reasons = ["⚠️ WAKTUNYA SERVIS"];
+            score += 5000; isMaintenance = true; reasons = ["⚠️ WAKTUNYA SERVIS"];
         }
 
         let priority: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
@@ -222,14 +215,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
              else score -= 500; 
         }
 
-        return {
-            ...h,
-            distance,
-            score: Math.round(score),
-            matchReason: reasons[0] || (score > 600 ? "Potensi" : "Alternatif"),
-            isMaintenance,
-            priorityLevel: priority
-        };
+        return { ...h, distance, score: Math.round(score), matchReason: reasons[0] || (score > 600 ? "Potensi" : "Alternatif"), isMaintenance, priorityLevel: priority };
     });
 
     return scored.filter(s => s.score > 0 || s.isMaintenance).sort((a, b) => b.score - a.score).slice(0, 7);
@@ -262,11 +248,14 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
           </div>
       )}
 
-      {/* HEADER */}
+      {/* HEADER WITH STRATEGY INDICATOR */}
       <div className="flex justify-between items-start">
           <div>
               <div className="flex items-center gap-2 mb-1">
-                 <span className="text-xs font-bold text-app-primary bg-app-primary/10 px-2 py-0.5 rounded uppercase tracking-wider">{currentTime.dayName}</span>
+                 <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider flex items-center gap-1 ${shiftState?.strategy === 'SNIPER' ? 'bg-purple-900/30 text-purple-400 border border-purple-500/30' : 'bg-emerald-900/30 text-emerald-400 border border-emerald-500/30'}`}>
+                    {shiftState?.strategy === 'SNIPER' ? <Crosshair size={10}/> : <Rabbit size={10}/>}
+                    {shiftState?.strategy === 'SNIPER' ? 'MODE SNIPER' : 'MODE FEEDER'}
+                 </span>
                  {isRainMode && <span className="text-[10px] font-bold text-blue-300 bg-blue-900/30 px-2 py-0.5 rounded flex items-center gap-1"><CloudRain size={10}/> HUJAN</span>}
               </div>
               <h1 className="text-5xl font-black text-white tracking-tighter leading-none font-mono">{currentTime.timeString}</h1>
@@ -280,10 +269,45 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
           </div>
       </div>
 
+      {/* MOMENTUM & SERVER STATUS CARD (NEW) */}
+      <div className="bg-[#1a1a1a] rounded-2xl p-4 border border-gray-800 relative overflow-hidden">
+          <div className="flex justify-between items-center mb-3">
+              <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${goldenTime.active ? 'bg-amber-400 animate-pulse' : 'bg-gray-600'}`}></div>
+                  <span className={`text-xs font-black uppercase ${goldenTime.color}`}>{goldenTime.label}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                  <Flame size={14} className={momentumScore > 50 ? 'text-orange-500 animate-bounce' : 'text-gray-600'} />
+                  <span className="text-[10px] font-bold text-gray-400">MOMENTUM</span>
+              </div>
+          </div>
+          
+          <div className="relative h-2 w-full bg-black rounded-full overflow-hidden">
+              <div 
+                  className={`absolute left-0 top-0 h-full transition-all duration-1000 ${momentumScore > 75 ? 'bg-orange-500' : 'bg-blue-600'}`} 
+                  style={{ width: `${momentumScore}%` }}
+              ></div>
+          </div>
+          <div className="flex justify-between mt-1 text-[9px] font-mono text-gray-500">
+              <span>DINGIN</span>
+              <span>HANGAT (FEEDING)</span>
+              <span>PANAS (GACOR)</span>
+          </div>
+
+          {momentumScore < 20 && shiftState?.strategy === 'FEEDER' && (
+              <div className="mt-3 p-2 bg-blue-900/20 border border-blue-800 rounded-lg flex items-start gap-2">
+                  <Zap size={12} className="text-blue-400 mt-0.5" />
+                  <p className="text-[10px] text-blue-200 leading-tight">
+                      <strong>Akun Dingin?</strong> "Cocol" manual orderan pendek sekarang untuk memancing server (Feeding). Jangan cancel!
+                  </p>
+              </div>
+          )}
+      </div>
+
       {/* PROGRESS BAR */}
       <div className="bg-[#1a1a1a] rounded-2xl p-4 border border-gray-800 relative overflow-hidden">
         <div className="flex justify-between items-end mb-2 relative z-10">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Pencapaian Target</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Target Revenue</span>
             <span className={`text-xl font-black ${progress >= 100 ? 'text-emerald-400' : 'text-white'}`}>{progress}%</span>
         </div>
         <div className="h-3 w-full bg-black rounded-full overflow-hidden relative z-10 border border-gray-700">

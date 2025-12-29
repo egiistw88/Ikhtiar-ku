@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="id" class="dark">
   <head>
@@ -61,8 +62,9 @@
         background-color: #000000;
         font-family: 'Inter', sans-serif;
         -webkit-tap-highlight-color: transparent;
-        overscroll-behavior-y: none;
-        user-select: none; /* Rasa native app */
+        overscroll-behavior-y: none; /* MENCEGAH PULL-TO-REFRESH DI CHROME ANDROID */
+        user-select: none; /* RASA NATIVE APP: TIDAK BISA SELECT TEXT */
+        touch-action: manipulation; /* MEMBUANG DELAY 300MS TAP */
       }
       /* Custom Scrollbar hide */
       .no-scrollbar::-webkit-scrollbar {

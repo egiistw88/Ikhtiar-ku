@@ -54,21 +54,51 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
   const [gpsReady, setGpsReady] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
 
+  // GPS & DATA SYNC ENGINE
   useEffect(() => {
     syncData();
+    
+    // 1. Initial GPS Watch
+    let watchId: number | null = null;
     if (navigator.geolocation) {
-        const watchId = navigator.geolocation.watchPosition(
+        watchId = navigator.geolocation.watchPosition(
             (pos) => {
                 setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
                 setGpsReady(true);
             },
-            (err) => console.log("GPS Error", err),
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 20000 }
+            (err) => console.log("GPS Error/Waiting...", err),
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
         );
-        return () => navigator.geolocation.clearWatch(watchId);
     }
+
+    // 2. Force Refresh on Resume (Visibility Change)
+    // Driver sering switch app. Saat balik ke sini, GPS harus langsung update.
+    const handleResume = () => {
+        if (document.visibilityState === 'visible') {
+            syncData(); // Refresh data storage
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                        setGpsReady(true);
+                        console.log("GPS Woke Up");
+                    },
+                    undefined,
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                );
+            }
+        }
+    };
+    document.addEventListener('visibilitychange', handleResume);
+
+    // 3. Fallback Interval
     const interval = setInterval(syncData, 30000); 
-    return () => clearInterval(interval);
+
+    return () => {
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        clearInterval(interval);
+        document.removeEventListener('visibilitychange', handleResume);
+    };
   }, [shiftState]); 
 
   const syncData = () => {
@@ -82,6 +112,19 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
       vibrate(10);
       playSound('click');
       setIsScanning(true);
+      
+      // Force GPS Update
+      if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                setGpsReady(true);
+            },
+            () => onToast("GPS Lemah/Mati"),
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+          );
+      }
+
       setTimeout(() => {
           syncData();
           setIsScanning(false);

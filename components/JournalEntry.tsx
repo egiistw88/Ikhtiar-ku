@@ -31,6 +31,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
   const [isListening, setIsListening] = useState(false);
   const [transcriptPreview, setTranscriptPreview] = useState<string>('');
   const recognitionRef = useRef<any>(null);
+  const voiceTimeoutRef = useRef<any>(null); // Watchdog
 
   // Alert State
   const [alert, setAlert] = useState<{show: boolean, msg: string}>({show: false, msg: ''});
@@ -39,13 +40,17 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => console.log("GPS Error"),
+        () => {}, // Silent fail is fine here, radar handles GPS alerts
         { enableHighAccuracy: true }
       );
     }
+    return () => {
+        if (voiceTimeoutRef.current) clearTimeout(voiceTimeoutRef.current);
+        if (recognitionRef.current) recognitionRef.current.stop();
+    };
   }, []);
 
-  // --- SMART PARSING LOGIC (Sama seperti sebelumnya, tetap dipertahankan) ---
+  // --- SMART PARSING LOGIC ---
   const parseIndonesianNumber = (text: string): number | null => {
       const wordMap: Record<string, number> = {
           'satu': 1, 'dua': 2, 'tiga': 3, 'empat': 4, 'lima': 5,
@@ -138,8 +143,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       if (!Speech) { setAlert({show: true, msg: "Browser tidak support voice input."}); return; }
 
       if (isListening) { 
-          recognitionRef.current?.stop(); 
-          setIsListening(false); 
+          stopVoice();
           return; 
       }
 
@@ -153,11 +157,21 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
               setIsListening(true); 
               setTranscriptPreview("Mendengarkan..."); 
               vibrate(20);
+              // Safety: Auto stop if no sound for 8 seconds (Watchdog)
+              if (voiceTimeoutRef.current) clearTimeout(voiceTimeoutRef.current);
+              voiceTimeoutRef.current = setTimeout(() => {
+                  stopVoice();
+                  setTranscriptPreview("Waktu habis.");
+              }, 8000);
           };
           
-          rec.onend = () => { setIsListening(false); vibrate(20); };
+          rec.onend = () => { stopVoice(); vibrate(20); };
           
           rec.onresult = (e: any) => {
+              // Reset watchdog on activity
+              if (voiceTimeoutRef.current) clearTimeout(voiceTimeoutRef.current);
+              voiceTimeoutRef.current = setTimeout(() => stopVoice(), 5000); // 5 sec silence timeout
+
               const text = Array.from(e.results).map((result: any) => result[0].transcript).join('');
               setTranscriptPreview(text);
               if (e.results[0].isFinal) { processSmartVoice(text); playSound('success'); }
@@ -166,8 +180,17 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
           recognitionRef.current = rec;
           rec.start();
           playSound('click');
-      } catch (e) { console.error(e); setIsListening(false); }
+      } catch (e) { 
+          console.error(e); 
+          stopVoice();
+      }
   };
+
+  const stopVoice = () => {
+      if (recognitionRef.current) recognitionRef.current.stop();
+      if (voiceTimeoutRef.current) clearTimeout(voiceTimeoutRef.current);
+      setIsListening(false);
+  }
 
   const saveLogic = () => {
     const argoVal = parseCurrencyInput(argoRaw);
@@ -228,7 +251,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
       <button 
         type="button" 
         onClick={() => { setAppSource(name); vibrate(5); }} 
-        className={`flex-shrink-0 px-5 py-3 rounded-full border transition-all duration-200 text-xs font-black uppercase tracking-wide ${appSource === name ? `${color} ${textColor} border-transparent shadow-lg scale-105` : 'bg-[#1a1a1a] border-gray-800 text-gray-500'}`}
+        className={`flex-shrink-0 px-5 py-3 rounded-full border snap-center transition-all duration-200 text-xs font-black uppercase tracking-wide ${appSource === name ? `${color} ${textColor} border-transparent shadow-lg scale-105` : 'bg-[#1a1a1a] border-gray-800 text-gray-500'}`}
       >
           {name}
       </button>
@@ -240,7 +263,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
 
       <form onSubmit={handleSubmit} className="flex-1 flex flex-col pt-6 px-5 space-y-6">
           
-          {/* 1. MONEY CARD (Clean & Big) */}
+          {/* 1. MONEY CARD */}
           <div className="bg-[#1a1a1a] rounded-3xl p-6 border border-gray-800 relative">
              <div className="flex justify-between items-start mb-2">
                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Pendapatan</label>
@@ -249,7 +272,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
                  </div>
              </div>
              
-             <div className="flex items-baseline gap-1 my-2">
+             <div className="flex items-center gap-2 my-2 relative">
                  <span className="text-2xl font-bold text-gray-600">Rp</span>
                  <input 
                       autoFocus
@@ -257,9 +280,13 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
                       value={argoRaw} onChange={e => setArgoRaw(formatCurrencyInput(e.target.value))}
                       className="w-full bg-transparent text-5xl font-mono font-black text-white focus:outline-none placeholder-gray-800"
                   />
+                  {argoRaw && (
+                    <button type="button" onClick={() => setArgoRaw('')} className="p-2 bg-gray-800 rounded-full text-gray-400 absolute right-0">
+                        <X size={16} />
+                    </button>
+                  )}
              </div>
 
-             {/* Integrated Payment Toggle */}
              <div className="flex bg-black/50 p-1 rounded-xl mt-4 border border-gray-800/50">
                  <button type="button" onClick={() => setIsCash(true)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2 transition-all ${isCash ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-500 hover:text-gray-300'}`}>
                     <Banknote size={14} /> Tunai
@@ -270,7 +297,7 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
              </div>
           </div>
 
-          {/* 2. VOICE TRIGGER (Spatial Centerpiece) */}
+          {/* 2. VOICE TRIGGER */}
           <div className="relative">
              {isListening && <div className="absolute inset-0 bg-red-600/10 blur-xl rounded-full animate-pulse"></div>}
              <button 
@@ -295,7 +322,6 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
                      </div>
                  )}
              </button>
-             {/* Hint Text */}
              {!isListening && !transcriptPreview && (
                  <p className="text-[9px] text-gray-600 text-center mt-2">
                      Contoh: "Gojek Bike 15 ribu tunai di Stasiun"
@@ -303,11 +329,10 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
              )}
           </div>
 
-          {/* 3. DETAILS CARD (Horizontal Scroll & Grid) */}
+          {/* 3. DETAILS CARD */}
           <div className="space-y-4">
-              
-              {/* App Source - Horizontal Scroll for breathing room */}
-              <div className="flex overflow-x-auto gap-3 pb-2 no-scrollbar -mx-5 px-5">
+              {/* App Source - Snap scrolling for better UX */}
+              <div className="flex overflow-x-auto gap-3 pb-2 no-scrollbar -mx-5 px-5 touch-pan-x snap-x snap-mandatory">
                   <AppPill name="Maxim" color="bg-yellow-500" textColor="text-black" />
                   <AppPill name="Gojek" color="bg-green-600" textColor="text-white" />
                   <AppPill name="Grab" color="bg-white" textColor="text-green-700" />
@@ -315,7 +340,6 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
                   <AppPill name="Indriver" color="bg-lime-500" textColor="text-black" />
               </div>
 
-              {/* Service Type - Clean Grid */}
               <div className="grid grid-cols-4 gap-2">
                   {[
                       {id: 'Bike', icon: <Bike size={18}/>, label: 'Bike'},
@@ -335,7 +359,6 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
                   ))}
               </div>
 
-              {/* Location Input - Standard Clean Input */}
               <div className="relative">
                    <input 
                       type="text" placeholder="Lokasi jemput (Opsional)..."
@@ -359,7 +382,6 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, onSaved }) => 
           </div>
 
       </form>
-      
     </div>
   );
 };

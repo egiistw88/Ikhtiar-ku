@@ -9,38 +9,42 @@ const FINANCE_KEY = 'ikhtiar_ku_finance_v1';
 const SETTINGS_KEY = 'ikhtiar_ku_settings_v1';
 const GARAGE_KEY = 'ikhtiar_ku_garage_v1';
 
-// Wrapper untuk menangani QuotaExceededError jika HP kentang / memori penuh
+// --- UTILITY: SAFE JSON PARSER (ANTI CRASH) ---
+// Mencegah aplikasi Blank Screen jika data localStorage korup (misal HP mati mendadak)
+const safeParse = <T>(jsonString: string | null, fallback: T): T => {
+    if (!jsonString) return fallback;
+    try {
+        return JSON.parse(jsonString) as T;
+    } catch (e) {
+        console.warn("Data corruption detected. Resetting to fallback.", e);
+        return fallback;
+    }
+};
+
 const safeSetItem = (key: string, value: string) => {
     try {
         localStorage.setItem(key, value);
     } catch (e: any) {
         if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
-            console.warn("Storage Penuh! Menjalankan Emergency Cleanup...");
-            runDataHousekeeping(true); 
+            runDataHousekeeping(true); // Emergency cleanup
             try {
                 localStorage.setItem(key, value);
             } catch (retryError) {
-                console.error("Critical Storage Failure: Data tidak tersimpan.", retryError);
+                // Fail silently in prod, critical error log only
             }
-        } else {
-            console.error("Storage Error:", e);
         }
     }
 };
 
-// OPTIMASI RADIKAL: Driver butuh kecepatan. History terlalu lama bikin HP lemot.
-// Default Retention diperpendek: Transaksi 7 Hari, Hotspot 14 Hari.
-export const runDataHousekeeping = (forceAggressive: boolean = false): { cleanedHotspots: number, cleanedTxs: number, status: string } => {
+export const runDataHousekeeping = (forceAggressive: boolean = false): void => {
     try {
         const now = new Date();
-        // Aggressive by default for field performance
         const txRetentionDays = forceAggressive ? 3 : 7; 
         const hotspotRetentionDays = forceAggressive ? 7 : 14;
 
         const limitDateTx = new Date(now.setDate(now.getDate() - txRetentionDays)).getTime();
         const limitDateSpot = new Date(now.setDate(now.getDate() - hotspotRetentionDays)).getTime();
         
-        // Hapus juga data masa depan yang aneh (tanggal hp ngaco)
         const futureLimit = new Date();
         futureLimit.setDate(futureLimit.getDate() + 1); 
         const futureLimitTime = futureLimit.getTime();
@@ -53,39 +57,27 @@ export const runDataHousekeeping = (forceAggressive: boolean = false): { cleaned
             if (tx.timestamp < limitDateTx) return false; 
             return true;
         });
-        const removedTxsCount = currentTxs.length - validTxs.length;
 
-        if (removedTxsCount > 0) {
+        if (currentTxs.length !== validTxs.length) {
             localStorage.setItem(FINANCE_KEY, JSON.stringify(validTxs));
         }
 
         // 2. CLEAN HOTSPOTS
         const currentHotspots = getHotspots();
         const validHotspots = currentHotspots.filter(h => {
-            // Keep Seed Data / Recurring Data FOREVER
-            if (!h.isUserEntry || h.isDaily) return true;
-
+            if (!h.isUserEntry || h.isDaily) return true; // Always keep seed/daily data
             const entryDate = new Date(h.date).getTime();
             if (isNaN(entryDate)) return false;
             if (entryDate > futureLimitTime) return false;
             if (entryDate < limitDateSpot) return false;
-
             return true;
         });
 
-        const removedHotspotsCount = currentHotspots.length - validHotspots.length;
-        if (removedHotspotsCount > 0) {
+        if (currentHotspots.length !== validHotspots.length) {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(validHotspots));
         }
-
-        return { 
-            cleanedHotspots: removedHotspotsCount, 
-            cleanedTxs: removedTxsCount,
-            status: 'SUCCESS'
-        };
-
     } catch (e) {
-        return { cleanedHotspots: 0, cleanedTxs: 0, status: 'ERROR' };
+        // Ignore errors during cleanup
     }
 };
 
@@ -95,151 +87,107 @@ export const performFactoryReset = () => {
 }
 
 export const getHotspots = (): Hotspot[] => {
-  try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // DATA SANITIZER / MIGRATION
-        // Memastikan data lama kompatibel dengan logika baru (isDaily, baseScore)
-        return parsed.map((h: any) => ({
-            ...h,
-            // Defaulting new fields if missing
-            isDaily: h.isDaily !== undefined ? h.isDaily : false,
-            baseScore: h.baseScore !== undefined ? h.baseScore : (h.isUserEntry ? 100 : 50)
-        }));
-      }
+    if (!stored) {
+        safeSetItem(STORAGE_KEY, JSON.stringify(INITIAL_DATA));
+        return INITIAL_DATA;
     }
-    // Jika kosong, muat seed data baru
-    safeSetItem(STORAGE_KEY, JSON.stringify(INITIAL_DATA));
-    return INITIAL_DATA;
-  } catch (error) {
-    console.error("Storage error", error);
-    return INITIAL_DATA;
-  }
+    
+    const parsed = safeParse<Hotspot[]>(stored, INITIAL_DATA);
+    // Data Migration/Sanitizer on the fly
+    return parsed.map((h: any) => ({
+        ...h,
+        isDaily: h.isDaily ?? false,
+        baseScore: h.baseScore ?? (h.isUserEntry ? 100 : 50)
+    }));
 };
 
 export const addHotspot = (hotspot: Hotspot): void => {
-  try {
     const current = getHotspots();
-    const updated = [hotspot, ...current]; 
-    safeSetItem(STORAGE_KEY, JSON.stringify(updated));
-  } catch (error) {
-    console.error("Failed to save hotspot", error);
-  }
+    safeSetItem(STORAGE_KEY, JSON.stringify([hotspot, ...current]));
 };
 
 export const deleteHotspot = (id: string): void => {
-    try {
-        const current = getHotspots();
-        const updated = current.filter(h => h.id !== id);
-        safeSetItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (error) {
-        console.error("Failed to delete", error);
-    }
-}
+    const current = getHotspots();
+    safeSetItem(STORAGE_KEY, JSON.stringify(current.filter(h => h.id !== id)));
+};
 
 export const toggleValidation = (id: string, isAccurate: boolean): void => {
-    try {
-        const current = getHotspots();
-        const updated = current.map(h => {
-            if (h.id === id) {
-                const today = getLocalDateString();
-                const validations = h.validations || [];
-                const filtered = validations.filter(v => v.date !== today);
-                return {
-                    ...h,
-                    validations: [...filtered, { date: today, isAccurate }]
-                };
-            }
-            return h;
-        });
-        safeSetItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (error) {
-        console.error("Failed to update validation", error);
-    }
-}
+    const current = getHotspots();
+    const updated = current.map(h => {
+        if (h.id === id) {
+            const today = getLocalDateString();
+            const validations = h.validations || [];
+            // Remove existing validation for today if any, then add new one
+            const filtered = validations.filter(v => v.date !== today);
+            return {
+                ...h,
+                validations: [...filtered, { date: today, isAccurate }]
+            };
+        }
+        return h;
+    });
+    safeSetItem(STORAGE_KEY, JSON.stringify(updated));
+};
 
 export const getShiftState = (): ShiftState | null => {
-    const stored = localStorage.getItem(SHIFT_STATE_KEY);
-    if (!stored) return null;
-    
-    try {
-        const parsed: ShiftState = JSON.parse(stored);
-        const today = getLocalDateString();
+    const parsed = safeParse<ShiftState | null>(localStorage.getItem(SHIFT_STATE_KEY), null);
+    if (!parsed) return null;
 
-        if (parsed.date !== today) {
-            localStorage.removeItem(SHIFT_STATE_KEY);
-            return null;
-        }
-        
-        return parsed;
-    } catch (e) {
+    if (parsed.date !== getLocalDateString()) {
         localStorage.removeItem(SHIFT_STATE_KEY);
         return null;
     }
-}
+    return parsed;
+};
 
 export const saveShiftState = (state: ShiftState): void => {
     safeSetItem(SHIFT_STATE_KEY, JSON.stringify(state));
-}
+};
 
 export const clearShiftState = (): void => {
     localStorage.removeItem(SHIFT_STATE_KEY);
-}
+};
 
 export const getUserSettings = (): UserSettings => {
-    const stored = localStorage.getItem(SETTINGS_KEY);
-    if (stored) return JSON.parse(stored);
-    
-    return {
+    const defaultSettings: UserSettings = {
         targetRevenue: 150000,
-        preferences: {
-            showFood: true,
-            showBike: true,
-            showSend: true,
-            showShop: true
-        },
+        preferences: { showFood: true, showBike: true, showSend: true, showShop: true },
         autoRainMode: false
     };
-}
+    return safeParse<UserSettings>(localStorage.getItem(SETTINGS_KEY), defaultSettings);
+};
 
 export const saveUserSettings = (settings: UserSettings): void => {
     safeSetItem(SETTINGS_KEY, JSON.stringify(settings));
-}
+};
 
 export const getTransactions = (): Transaction[] => {
-    try {
-        const stored = localStorage.getItem(FINANCE_KEY);
-        return stored ? JSON.parse(stored) : [];
-    } catch (e) {
-        return [];
-    }
-}
+    return safeParse<Transaction[]>(localStorage.getItem(FINANCE_KEY), []);
+};
 
 export const addTransaction = (tx: Transaction): void => {
     const current = getTransactions();
-    const updated = [tx, ...current];
-    safeSetItem(FINANCE_KEY, JSON.stringify(updated));
-
+    safeSetItem(FINANCE_KEY, JSON.stringify([tx, ...current]));
+    
+    // Auto-update Odometer logic
     if (tx.distanceKm && tx.distanceKm > 0) {
         const garage = getGarageData();
         garage.currentOdometer = (garage.currentOdometer || 0) + tx.distanceKm;
         saveGarageData(garage);
     }
-}
+};
 
 export const updateTransaction = (updatedTx: Transaction): void => {
     const current = getTransactions();
     const updated = current.map(tx => tx.id === updatedTx.id ? updatedTx : tx);
     safeSetItem(FINANCE_KEY, JSON.stringify(updated));
-}
+};
 
 export const deleteTransaction = (id: string): void => {
     const current = getTransactions();
-    const updated = current.filter(tx => String(tx.id) !== String(id));
-    safeSetItem(FINANCE_KEY, JSON.stringify(updated));
-}
+    safeSetItem(FINANCE_KEY, JSON.stringify(current.filter(tx => String(tx.id) !== String(id))));
+};
 
 export const getTodayFinancials = (): DailyFinancial => {
     const todayStr = getLocalDateString();
@@ -251,36 +199,21 @@ export const getTodayFinancials = (): DailyFinancial => {
     let grossIncome = 0;
     let cashIncome = 0;
     let nonCashIncome = 0;
-    let realOpsCost = 0; // Only Cash Expenses affect Net Cash
+    let realOpsCost = 0; 
 
     txs.forEach(t => {
         if (t.type === 'income') {
             grossIncome += t.amount;
-            // Default to Cash if undefined (backward compatibility)
-            if (t.isCash !== false) {
-                cashIncome += t.amount;
-            } else {
-                nonCashIncome += t.amount;
-            }
+            if (t.isCash !== false) cashIncome += t.amount;
+            else nonCashIncome += t.amount;
         } else if (t.type === 'expense') {
-            // Assume expenses marked as Cash reduce Wallet
-            // If isCash is false (e.g. Pulsa via Bank), it doesn't reduce Wallet Cash
-            if (t.isCash !== false) {
-                realOpsCost += t.amount;
-            }
+            if (t.isCash !== false) realOpsCost += t.amount;
         }
     });
 
-    // Uang di Tangan = Modal Awal + Pendapatan Tunai - Pengeluaran Tunai
     const netCash = startCash + cashIncome - realOpsCost;
-    
-    // Dana Maintenance tetap dihitung dari Gross (Semua pendapatan)
     const maintenanceFund = Math.round(grossIncome * 0.10);
-    
-    // Uang Dapur = Sisa Uang di Tangan - Dana Maintenance
-    // Kalau non-tunai banyak, Uang Dapur mungkin "virtual" (ada di saldo), tapi ini hitungan aman cash.
-    // Kita set kitchen berdasarkan NetCash real agar driver tidak boncos ambil cash.
-    let kitchen = netCash - maintenanceFund - startCash;
+    const kitchen = netCash - maintenanceFund - startCash;
     
     return {
         date: todayStr,
@@ -293,7 +226,7 @@ export const getTodayFinancials = (): DailyFinancial => {
         kitchen, 
         target: settings.targetRevenue
     };
-}
+};
 
 export const getGarageData = (): GarageData => {
     const defaultData: GarageData = {
@@ -310,23 +243,13 @@ export const getGarageData = (): GarageData => {
         stnkExpiryDate: '',
         simExpiryDate: ''
     };
-
-    try {
-        const stored = localStorage.getItem(GARAGE_KEY);
-        if (stored) {
-            const parsed = JSON.parse(stored);
-            // Merge dengan default untuk properti baru yang mungkin belum ada di user lama
-            return { ...defaultData, ...parsed };
-        }
-        return defaultData;
-    } catch (e) {
-        return defaultData;
-    }
-}
+    const parsed = safeParse<GarageData>(localStorage.getItem(GARAGE_KEY), defaultData);
+    return { ...defaultData, ...parsed }; // Merge to ensure new fields exists
+};
 
 export const saveGarageData = (data: GarageData): void => {
     safeSetItem(GARAGE_KEY, JSON.stringify(data));
-}
+};
 
 export const createBackupString = (): string => {
     const backup = {
@@ -335,11 +258,11 @@ export const createBackupString = (): string => {
         garage: getGarageData(),
         settings: getUserSettings(),
         shift: getShiftState(),
-        version: "1.0",
+        version: "2.0",
         timestamp: new Date().toISOString()
     };
     return JSON.stringify(backup);
-}
+};
 
 export const restoreFromBackup = (jsonString: string): boolean => {
     try {
@@ -350,7 +273,6 @@ export const restoreFromBackup = (jsonString: string): boolean => {
         if (data.settings) safeSetItem(SETTINGS_KEY, JSON.stringify(data.settings));
         return true;
     } catch (e) {
-        console.error("Restore failed", e);
         return false;
     }
-}
+};

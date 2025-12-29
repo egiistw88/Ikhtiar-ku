@@ -94,9 +94,9 @@ const App: React.FC = () => {
 
       <main className="flex-1 overflow-y-auto no-scrollbar pb-40 relative">
         {view === 'radar' && <RadarView hotspots={hotspots} currentTime={currentTime} shiftState={shiftState} onOpenSettings={() => setView('settings')} onOpenSummary={handleOpenSummary} onRequestRest={handleStartRest} onToast={showToast} />}
-        {view === 'map' && <MapView hotspots={hotspots} currentTime={currentTime} />}
+        {view === 'map' && <MapView hotspots={hotspots} currentTime={currentTime} shiftState={shiftState} />}
         {view === 'journal' && <JournalEntry currentTime={currentTime} onSaved={() => { handleRefreshData(); showToast("Data Disimpan!"); }} />}
-        {view === 'wallet' && <WalletView onToast={showToast} />}
+        {view === 'wallet' && <WalletView shiftState={shiftState} onToast={showToast} />}
         {view === 'garage' && <GarageView />}
       </main>
 

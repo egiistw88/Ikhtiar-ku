@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap, Marker } from 'react-leaflet';
-import { Hotspot, TimeState } from '../types';
+import { Hotspot, TimeState, ShiftState } from '../types';
 import { CATEGORY_COLORS } from '../constants';
 import { Navigation, Zap, Map as MapIcon, Target, X, Compass, Lightbulb, TrendingUp, Filter, Calendar, Layers, ShieldCheck, Clock, AlertCircle } from 'lucide-react';
 import { vibrate, playSound, calculateDistance } from '../utils';
@@ -12,6 +12,7 @@ import L from 'leaflet';
 interface MapViewProps {
   hotspots: Hotspot[];
   currentTime: TimeState;
+  shiftState: ShiftState | null;
 }
 
 // Helper to update map center
@@ -23,9 +24,10 @@ const MapUpdater: React.FC<{ center: [number, number] }> = ({ center }) => {
     return null;
 };
 
-// INTELLIGENCE ENGINE (The Brain)
-const generateTacticalAdvice = (hotspots: Hotspot[], time: TimeState, userLoc: [number, number]) => {
+// INTELLIGENCE ENGINE (The Brain) - STRATEGY AWARE
+const generateTacticalAdvice = (hotspots: Hotspot[], time: TimeState, userLoc: [number, number], shiftState: ShiftState | null) => {
     const hour = time.fullDate.getHours();
+    const strategy = shiftState?.strategy || 'FEEDER';
     
     // 1. CARI SPOT TERDEKAT & AKTIF
     const activeSpots = hotspots.filter(h => {
@@ -55,7 +57,31 @@ const generateTacticalAdvice = (hotspots: Hotspot[], time: TimeState, userLoc: [
         };
     }
 
-    // 2. FALLBACK STRATEGY (Jika tidak ada data spesifik dekat user)
+    // 2. FALLBACK STRATEGY (Based on Feeder vs Sniper)
+    
+    // LOGIKA SNIPER (MALAM/KAKAP)
+    if (strategy === 'SNIPER') {
+        if (hour >= 22 || hour < 4) return {
+            type: 'GENERAL', title: 'MODE SNIPER: AKTIF', highlight: 'Stasiun / Bandara / Hub',
+            message: 'Jamnya orang pulang luar kota & shift malam.',
+            action: 'Standby di Stasiun Kereta atau Terminal. Incar kakap!',
+            icon: <Zap className="text-purple-500" size={32} />, colorClass: 'bg-white border-l-4 border-purple-500'
+        };
+        if (hour >= 18 && hour < 22) return {
+            type: 'GENERAL', title: 'PEMANASAN SNIPER', highlight: 'Mall & Kuliner Malam',
+            message: 'Cari orderan penghubung ke pusat kota.',
+            action: 'Geser ke Mall besar atau Pusat Kuliner Malam.',
+            icon: <Compass className="text-blue-500" size={32} />, colorClass: 'bg-white border-l-4 border-blue-500'
+        };
+        return {
+             type: 'GENERAL', title: 'DILUAR JAM OPERASI', highlight: 'Istirahat',
+             message: 'Sniper mainnya malam Ndan. Hemat tenaga.',
+             action: 'Tidur dulu, nanti malam gaspol.',
+             icon: <Compass className="text-gray-400" size={32} />, colorClass: 'bg-white border-l-4 border-gray-400'
+        };
+    }
+
+    // LOGIKA FEEDER (NORMAL/PAGI)
     if (hour >= 6 && hour < 10) return {
         type: 'GENERAL', title: 'MODE RUSH HOUR PAGI', highlight: 'Perumahan -> Sekolah/Kantor',
         message: 'Fokus pada residensial padat. Abaikan mall/kuliner dulu.',
@@ -83,12 +109,12 @@ const generateTacticalAdvice = (hotspots: Hotspot[], time: TimeState, userLoc: [
     };
 };
 
-const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime }) => {
+const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) => {
   const [userLocation, setUserLocation] = useState<[number, number]>([-6.9175, 107.6191]);
   const [showIntel, setShowIntel] = useState(false);
   const [filterMode, setFilterMode] = useState<'STRICT' | 'ALL'>('STRICT');
 
-  const intel = useMemo(() => generateTacticalAdvice(hotspots, currentTime, userLocation), [hotspots, currentTime, userLocation]);
+  const intel = useMemo(() => generateTacticalAdvice(hotspots, currentTime, userLocation, shiftState), [hotspots, currentTime, userLocation, shiftState]);
 
   // LOGIC FILTER PRECISI
   const displayedHotspots = useMemo(() => {

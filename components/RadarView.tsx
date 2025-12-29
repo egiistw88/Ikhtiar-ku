@@ -51,8 +51,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
   const [gpsReady, setGpsReady] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
   
-  // New States for "Street Smart" Logic
-  const [momentumScore, setMomentumScore] = useState(0); // 0-100 Snowball Effect
+  const [momentumScore, setMomentumScore] = useState(0); 
 
   useEffect(() => {
     syncData();
@@ -104,29 +103,46 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         setSettings(getUserSettings());
   };
 
+  // LOGIC FIX: Momentum Calculation Awareness
   const calculateMomentum = () => {
-      // Logic: Snowball Effect. 
-      // Count transactions in last 2 hours.
       const txs = getTransactions();
       const now = Date.now();
       const twoHoursAgo = now - (2 * 60 * 60 * 1000);
       const recentTx = txs.filter(t => t.timestamp > twoHoursAgo);
       
-      // Base score: 20 per order. Max 100.
-      const score = Math.min(100, recentTx.length * 25);
-      setMomentumScore(score);
+      const strategy = shiftState?.strategy || 'FEEDER';
+      let score = 0;
+
+      if (strategy === 'SNIPER') {
+          // Sniper Logic: Kualitas (Nilai Order) lebih penting
+          // Order > 30rb = 50 poin. Order < 30rb = 10 poin.
+          recentTx.forEach(tx => {
+              if (tx.amount >= 30000) score += 50;
+              else score += 10;
+          });
+      } else {
+          // Feeder Logic: Kuantitas (Jumlah Order) lebih penting
+          // 1 Order = 25 poin. (4 order dalam 2 jam = 100%)
+          score = recentTx.length * 25;
+      }
+      
+      setMomentumScore(Math.min(100, score));
   }
 
   const getGoldenTimeStatus = (): { active: boolean, label: string, color: string } => {
       const hour = currentTime.fullDate.getHours();
-      // Morning Rush (06-09), Lunch (11-13), Evening Rush (16-19)
-      if (hour >= 6 && hour < 9) return { active: true, label: 'GOLDEN TIME: PAGI', color: 'text-amber-400' };
-      if (hour >= 11 && hour < 13) return { active: true, label: 'GOLDEN TIME: SIANG', color: 'text-orange-400' };
-      if (hour >= 16 && hour < 19) return { active: true, label: 'GOLDEN TIME: SORE', color: 'text-purple-400' };
-      // Ngalong Time (22-04)
-      if (hour >= 22 || hour < 4) return { active: true, label: 'WAKTU NGALONG', color: 'text-blue-400' };
-      
-      return { active: false, label: 'JAM NORMAL', color: 'text-gray-500' };
+      const strat = shiftState?.strategy || 'FEEDER';
+
+      if (strat === 'SNIPER') {
+          if (hour >= 22 || hour < 4) return { active: true, label: 'GOLDEN TIME: NGALONG', color: 'text-purple-400' };
+          if (hour >= 18 && hour < 22) return { active: false, label: 'WARMING UP', color: 'text-blue-400' };
+          return { active: false, label: 'OFF DUTY', color: 'text-gray-600' };
+      } else {
+          if (hour >= 6 && hour < 9) return { active: true, label: 'GOLDEN TIME: PAGI', color: 'text-amber-400' };
+          if (hour >= 11 && hour < 13) return { active: true, label: 'GOLDEN TIME: SIANG', color: 'text-orange-400' };
+          if (hour >= 16 && hour < 19) return { active: true, label: 'GOLDEN TIME: SORE', color: 'text-emerald-400' };
+          return { active: false, label: 'JAM NORMAL', color: 'text-gray-500' };
+      }
   };
 
   const goldenTime = getGoldenTimeStatus();
@@ -160,10 +176,12 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
       vibrate(10); playSound(isAccurate ? 'success' : 'click'); onToast(isAccurate ? "Validasi: Gacor! (Disimpan)" : "Validasi: Anyep (Dihindari)");
   };
 
+  // LOGIC FIX: Scoring Algorithm is now Strategy Aware
   const predictions: ScoredHotspot[] = useMemo(() => {
     const currentHour = currentTime.fullDate.getHours();
     const currentMinute = currentTime.fullDate.getMinutes();
     const currentTotalMinutes = currentHour * 60 + currentMinute;
+    const strategy = shiftState?.strategy || 'FEEDER';
     
     const candidates = localHotspots.filter(h => {
         if (quickFilter === 'FOOD') return (h.category.includes('Culinary') || h.type === 'Food' || h.type.includes('Shop') || h.category === 'Mall/Lifestyle');
@@ -198,6 +216,25 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         if (h.isDaily) score += 200;
         else if (h.day === currentTime.dayName) { score += 400; reasons.push(`Spesial ${h.day}`); }
         else score -= 800;
+
+        // --- STRATEGY MULTIPLIER (THE BRAIN) ---
+        if (strategy === 'SNIPER') {
+            // Sniper likes Hubs, Malls, Long Distance potential
+            if (['Transport Hub', 'Mall/Lifestyle', 'Culinary Night', 'Commercial'].includes(h.category)) {
+                score += 500;
+                reasons.unshift("Spot Kakap");
+            } else if (['Residential', 'School', 'Education'].includes(h.category)) {
+                score -= 300; // Hindari receh anak sekolah
+            }
+        } else {
+            // Feeder likes Residential, School, Quick trips
+            if (['Residential', 'Education', 'School', 'Residential/Shop'].includes(h.category)) {
+                score += 500;
+                reasons.unshift("Spot Feeder");
+            }
+            // Proximity is king for Feeder
+            if (distance < 2) score += 400;
+        }
 
         let isMaintenance = false;
         const maintenanceInterval = garage?.serviceInterval || 2000;

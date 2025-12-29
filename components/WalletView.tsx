@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Transaction, DailyFinancial } from '../types';
+import { Transaction, DailyFinancial, ShiftState } from '../types';
 import { getTransactions, addTransaction, updateTransaction, deleteTransaction, getTodayFinancials } from '../services/storage';
 import { TrendingUp, TrendingDown, X, Plus, Trash2, Save, AlertTriangle, Coffee, Zap, Car, ArrowDownLeft, Receipt, Coins, Wallet, CreditCard, Banknote, Calendar, Clock, Milestone, ArrowUpRight } from 'lucide-react';
 import { formatCurrencyInput, parseCurrencyInput, vibrate } from '../utils';
@@ -8,9 +8,10 @@ import FinancialAdvisor from './FinancialAdvisor';
 
 interface WalletViewProps {
     onToast: (msg: string) => void;
+    shiftState: ShiftState | null; // Added ShiftState to know strategy
 }
 
-const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
+const WalletView: React.FC<WalletViewProps> = ({ onToast, shiftState }) => {
     const [summary, setSummary] = useState<DailyFinancial | null>(null);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -39,20 +40,35 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast }) => {
 
     const formatRupiah = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n);
 
+    // LOGIC FIX: Target Forecast Strategy Aware
     const targetForecast = useMemo(() => {
         if (!summary) return null;
         const remaining = summary.target - summary.grossIncome;
         if (remaining <= 0) return { status: 'ACHIEVED' };
         
+        // Strategy Aware Calculation
+        const strategy = shiftState?.strategy || 'FEEDER';
+        let estimatedPerTrip = 0;
+
+        // Jika sudah ada trip hari ini, gunakan rata-rata real
         const tripTxs = transactions.filter(t => t.type === 'income' && t.category === 'Trip');
-        const avgOrder = tripTxs.length > 0 ? (tripTxs.reduce((sum, t) => sum + t.amount, 0) / tripTxs.length) : 12000;
+        if (tripTxs.length > 0) {
+            estimatedPerTrip = tripTxs.reduce((sum, t) => sum + t.amount, 0) / tripTxs.length;
+        } else {
+            // Jika belum ada trip, gunakan asumsi berdasarkan strategi
+            if (strategy === 'SNIPER') estimatedPerTrip = 35000; // Asumsi Kakap
+            else estimatedPerTrip = 10000; // Asumsi Receh/Feeder
+        }
         
+        // Safety check division by zero
+        estimatedPerTrip = Math.max(estimatedPerTrip, 5000); 
+
         return {
             status: 'ONGOING',
             remaining: remaining,
-            tripsNeeded: Math.ceil(remaining / avgOrder)
+            tripsNeeded: Math.ceil(remaining / estimatedPerTrip)
         };
-    }, [summary, transactions]);
+    }, [summary, transactions, shiftState]);
 
     const handleQuickAdd = (amount: number, cat: string, text: string) => {
         vibrate(20);

@@ -1,4 +1,5 @@
-import { CapacitorConfig } from '@capacitor/cli';
+// @ts-ignore - Capacitor CLI is optional for web-only deployment
+import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.ikhtiarku.driver',

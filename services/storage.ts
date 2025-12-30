@@ -103,6 +103,17 @@ export const getHotspots = (): Hotspot[] => {
 };
 
 export const addHotspot = (hotspot: Hotspot): void => {
+    // Validate hotspot data
+    if (!hotspot.id || !hotspot.origin || !hotspot.lat || !hotspot.lng) {
+        console.error('Invalid hotspot data:', hotspot);
+        throw new Error('Data hotspot tidak valid');
+    }
+    
+    if (hotspot.lat < -90 || hotspot.lat > 90 || hotspot.lng < -180 || hotspot.lng > 180) {
+        console.error('Invalid coordinates:', hotspot);
+        throw new Error('Koordinat tidak valid');
+    }
+    
     const current = getHotspots();
     safeSetItem(STORAGE_KEY, JSON.stringify([hotspot, ...current]));
 };
@@ -167,6 +178,17 @@ export const getTransactions = (): Transaction[] => {
 };
 
 export const addTransaction = (tx: Transaction): void => {
+    // Validate transaction data
+    if (!tx.id || !tx.date || typeof tx.amount !== 'number') {
+        console.error('Invalid transaction data:', tx);
+        throw new Error('Data transaksi tidak valid');
+    }
+    
+    if (tx.amount < 0) {
+        console.error('Negative transaction amount:', tx);
+        throw new Error('Jumlah transaksi tidak boleh negatif');
+    }
+    
     const current = getTransactions();
     safeSetItem(FINANCE_KEY, JSON.stringify([tx, ...current]));
     

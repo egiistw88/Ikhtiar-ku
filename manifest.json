@@ -1,11 +1,16 @@
 {
-  "name": "Ikhtiar-Ku: Radar Rezeki",
+  "name": "Ikhtiar-Ku: Radar Rezeki Driver Ojol",
   "short_name": "Ikhtiar-Ku",
+  "description": "Aplikasi wajib Driver Ojol. Radar Rezeki, Dompet Berkah, dan Perisai Driver.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#121212",
-  "theme_color": "#121212",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "orientation": "portrait",
+  "categories": ["productivity", "business", "navigation"],
+  "lang": "id",
+  "dir": "ltr",
   "icons": [
     {
       "src": "/logo.svg",
@@ -13,5 +18,29 @@
       "sizes": "512x512",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "Radar",
+      "short_name": "Radar",
+      "description": "Buka Radar Rezeki",
+      "url": "/?view=radar",
+      "icons": []
+    },
+    {
+      "name": "Journal",
+      "short_name": "Journal",
+      "description": "Catat Orderan",
+      "url": "/?view=journal",
+      "icons": []
+    },
+    {
+      "name": "Dompet",
+      "short_name": "Dompet",
+      "description": "Lihat Keuangan",
+      "url": "/?view=wallet",
+      "icons": []
+    }
+  ],
+  "screenshots": []
 }

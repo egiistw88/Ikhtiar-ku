@@ -7,7 +7,17 @@ const STORAGE_KEY = 'ikhtiar_ku_data_v1';
 const SHIFT_STATE_KEY = 'ikhtiar_ku_shift_state_v2'; 
 const FINANCE_KEY = 'ikhtiar_ku_finance_v1';
 const SETTINGS_KEY = 'ikhtiar_ku_settings_v1';
-const GARAGE_KEY = 'ikhtiar_ku_garage_v1';
+export const GARAGE_KEY = 'ikhtiar_ku_garage_v1';
+
+export const IKHTIAR_STORAGE_EVENT = 'ikhtiar_ku_storage_change';
+
+const emitStorageChange = (key: string) => {
+    try {
+        window.dispatchEvent(new CustomEvent(IKHTIAR_STORAGE_EVENT, { detail: { key } }));
+    } catch {
+        // Ignore (non-browser env)
+    }
+};
 
 // --- UTILITY: SAFE JSON PARSER (ANTI CRASH) ---
 // Mencegah aplikasi Blank Screen jika data localStorage korup (misal HP mati mendadak)
@@ -21,18 +31,32 @@ const safeParse = <T>(jsonString: string | null, fallback: T): T => {
     }
 };
 
+const setItemAndEmit = (key: string, value: string) => {
+    localStorage.setItem(key, value);
+    emitStorageChange(key);
+};
+
 const safeSetItem = (key: string, value: string) => {
     try {
-        localStorage.setItem(key, value);
+        setItemAndEmit(key, value);
     } catch (e: any) {
-        if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+        if (e?.name === 'QuotaExceededError' || e?.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
             runDataHousekeeping(true); // Emergency cleanup
             try {
-                localStorage.setItem(key, value);
-            } catch (retryError) {
-                // Fail silently in prod, critical error log only
+                setItemAndEmit(key, value);
+            } catch {
+                // Fail silently in prod
             }
         }
+    }
+};
+
+const safeRemoveItem = (key: string) => {
+    try {
+        localStorage.removeItem(key);
+        emitStorageChange(key);
+    } catch {
+        // Ignore
     }
 };
 
@@ -59,7 +83,11 @@ export const runDataHousekeeping = (forceAggressive: boolean = false): void => {
         });
 
         if (currentTxs.length !== validTxs.length) {
-            localStorage.setItem(FINANCE_KEY, JSON.stringify(validTxs));
+            try {
+                setItemAndEmit(FINANCE_KEY, JSON.stringify(validTxs));
+            } catch {
+                // Ignore
+            }
         }
 
         // 2. CLEAN HOTSPOTS
@@ -74,9 +102,13 @@ export const runDataHousekeeping = (forceAggressive: boolean = false): void => {
         });
 
         if (currentHotspots.length !== validHotspots.length) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(validHotspots));
+            try {
+                setItemAndEmit(STORAGE_KEY, JSON.stringify(validHotspots));
+            } catch {
+                // Ignore
+            }
         }
-    } catch (e) {
+    } catch {
         // Ignore errors during cleanup
     }
 };
@@ -135,7 +167,7 @@ export const getShiftState = (): ShiftState | null => {
     if (!parsed) return null;
 
     if (parsed.date !== getLocalDateString()) {
-        localStorage.removeItem(SHIFT_STATE_KEY);
+        safeRemoveItem(SHIFT_STATE_KEY);
         return null;
     }
     return parsed;
@@ -146,7 +178,7 @@ export const saveShiftState = (state: ShiftState): void => {
 };
 
 export const clearShiftState = (): void => {
-    localStorage.removeItem(SHIFT_STATE_KEY);
+    safeRemoveItem(SHIFT_STATE_KEY);
 };
 
 export const getUserSettings = (): UserSettings => {
@@ -180,13 +212,34 @@ export const addTransaction = (tx: Transaction): void => {
 
 export const updateTransaction = (updatedTx: Transaction): void => {
     const current = getTransactions();
+    const prev = current.find(tx => String(tx.id) === String(updatedTx.id));
+
     const updated = current.map(tx => tx.id === updatedTx.id ? updatedTx : tx);
     safeSetItem(FINANCE_KEY, JSON.stringify(updated));
+
+    const prevDistance = prev?.distanceKm || 0;
+    const nextDistance = updatedTx.distanceKm || 0;
+    const delta = nextDistance - prevDistance;
+
+    if (delta !== 0) {
+        const garage = getGarageData();
+        garage.currentOdometer = Math.max(0, (garage.currentOdometer || 0) + delta);
+        saveGarageData(garage);
+    }
 };
 
 export const deleteTransaction = (id: string): void => {
     const current = getTransactions();
+    const txToDelete = current.find(tx => String(tx.id) === String(id));
+
     safeSetItem(FINANCE_KEY, JSON.stringify(current.filter(tx => String(tx.id) !== String(id))));
+
+    const distance = txToDelete?.distanceKm || 0;
+    if (distance > 0) {
+        const garage = getGarageData();
+        garage.currentOdometer = Math.max(0, (garage.currentOdometer || 0) - distance);
+        saveGarageData(garage);
+    }
 };
 
 export const getTodayFinancials = (): DailyFinancial => {

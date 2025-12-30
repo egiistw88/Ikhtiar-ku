@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { GarageData } from '../types';
-import { getGarageData, saveGarageData } from '../services/storage';
+import { getGarageData, saveGarageData, GARAGE_KEY, IKHTIAR_STORAGE_EVENT } from '../services/storage';
 import { vibrate, playSound } from '../utils';
 import { Shield, Wrench, Save, Disc, CalendarClock, Settings, Activity, Thermometer, AlertOctagon, RefreshCw, Phone, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import CustomDialog from './CustomDialog';
@@ -115,12 +115,45 @@ const GarageView: React.FC = () => {
     const [formData, setFormData] = useState<GarageData>(getGarageData());
     
     const [resetType, setResetType] = useState<'OIL' | 'TIRE' | 'PART' | null>(null);
+    const syncTimeoutRef = useRef<number | null>(null);
+
+    const syncData = useCallback(() => {
+        const freshData = getGarageData();
+        setData(freshData);
+        if (!isEditing) {
+            setFormData(freshData);
+        }
+    }, [isEditing]);
 
     useEffect(() => {
-        const d = getGarageData(); 
-        setData(d); 
-        setFormData(d);
-    }, []);
+        syncData();
+
+        const handleStorageChange = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            if (customEvent.detail?.key === GARAGE_KEY) {
+                if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+                syncTimeoutRef.current = window.setTimeout(syncData, 100);
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                syncData();
+            }
+        };
+
+        window.addEventListener(IKHTIAR_STORAGE_EVENT, handleStorageChange);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        const intervalId = window.setInterval(syncData, 30000);
+
+        return () => {
+            window.removeEventListener(IKHTIAR_STORAGE_EVENT, handleStorageChange);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            clearInterval(intervalId);
+            if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+        };
+    }, [syncData]);
 
     const handleSave = () => {
         vibrate(20);
@@ -146,16 +179,17 @@ const GarageView: React.FC = () => {
         vibrate(50);
         playSound('success');
 
-        const currentKm = data.currentOdometer;
-        let update = { ...data };
-        
+        const latest = getGarageData();
+        const currentKm = latest.currentOdometer;
+        const update: GarageData = { ...latest };
+
         if (type === 'OIL') update.lastOilChangeKm = currentKm;
         if (type === 'TIRE') update.lastTireChangeKm = currentKm;
         if (type === 'PART') update.lastPartChangeKm = currentKm;
-        
+
         saveGarageData(update);
         setData(update);
-        setFormData(update); 
+        setFormData(update);
         setResetType(null);
     };
 

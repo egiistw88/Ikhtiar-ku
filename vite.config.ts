@@ -6,5 +6,19 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
-  }
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'map-vendor': ['leaflet', 'react-leaflet'],
+        }
+      }
+    }
+  },
+  server: {
+    port: 3000,
+    open: true
+  },
+  publicDir: 'public'
 });

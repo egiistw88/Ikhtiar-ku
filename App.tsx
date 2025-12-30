@@ -14,7 +14,9 @@ import SettingsView from './components/SettingsView';
 import ShiftSummary from './components/ShiftSummary';
 import PreRideSetup from './components/PreRideSetup';
 import RestModeOverlay from './components/RestModeOverlay';
-import { Radar, Map as MapIcon, Plus, Wallet, Shield, CheckCircle } from 'lucide-react';
+import Toast from './components/ui/Toast';
+import { Radar, Map as MapIcon, Plus, Wallet, Shield, WifiOff, Wifi } from 'lucide-react';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -23,8 +25,11 @@ const App: React.FC = () => {
   const [currentTime, setCurrentTime] = useState<TimeState>(getCurrentTimeInfo());
   const [shiftState, setShiftState] = useState<ShiftState | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('success');
   const [summaryData, setSummaryData] = useState<{ finance: DailyFinancial | null } | null>(null);
   const [isResting, setIsResting] = useState(false);
+  const isOnline = useOnlineStatus();
+  const [showOfflineNotice, setShowOfflineNotice] = useState(false);
 
   const refreshAppData = () => {
       const storedShift = getShiftState();
@@ -73,7 +78,21 @@ const App: React.FC = () => {
       saveShiftState(resumedState as ShiftState); setShiftState(resumedState as ShiftState); setIsResting(false); showToast("Selamat Narik Lagi Ndan!");
   };
 
-  const showToast = (msg: string) => { setToastMessage(msg); setTimeout(() => setToastMessage(null), 3000); };
+  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => { 
+    setToastMessage(msg); 
+    setToastType(type);
+    setTimeout(() => setToastMessage(null), 3000); 
+  };
+
+  // Monitor online/offline status
+  useEffect(() => {
+    if (!isOnline) {
+      setShowOfflineNotice(true);
+    } else if (showOfflineNotice) {
+      showToast('Koneksi kembali!', 'success');
+      setShowOfflineNotice(false);
+    }
+  }, [isOnline]);
 
   if (loading) return <SplashView onFinish={() => setLoading(false)} />;
   if (view === 'setup') return <PreRideSetup onComplete={handleSetupComplete} />;
@@ -85,11 +104,20 @@ const App: React.FC = () => {
       {isResting && shiftState?.restData && <RestModeOverlay financials={getTodayFinancials()} startTime={shiftState.restData.startTime} onResume={handleResumeWork} />}
       <SOSButton />
       
+      {/* Online/Offline Indicator */}
+      {!isOnline && showOfflineNotice && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[2001] bg-amber-600/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-amber-400/30 animate-in slide-in-from-top-4 fade-in duration-300">
+          <WifiOff size={18} />
+          <span className="font-bold text-sm">Mode Offline</span>
+        </div>
+      )}
+      
       {toastMessage && (
-          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[2000] bg-emerald-600/90 backdrop-blur-md text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 w-[90%] max-w-sm border border-emerald-400/30">
-              <div className="bg-white/20 p-1 rounded-full"><CheckCircle size={18} className="text-white" /></div>
-              <span className="font-bold text-sm leading-snug">{toastMessage}</span>
-          </div>
+          <Toast 
+            message={toastMessage} 
+            type={toastType} 
+            onClose={() => setToastMessage(null)} 
+          />
       )}
 
       <main className="flex-1 overflow-y-auto no-scrollbar pb-40 relative">
@@ -101,10 +129,15 @@ const App: React.FC = () => {
       </main>
 
       <div className="absolute bottom-6 left-0 right-0 flex justify-center z-50 pointer-events-none pb-safe">
-          <nav className="bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-full px-6 py-3 flex items-center gap-6 shadow-[0_8px_32px_rgba(0,0,0,0.5)] pointer-events-auto">
+          <nav className="bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-full px-6 py-3 flex items-center gap-6 shadow-[0_8px_32px_rgba(0,0,0,0.5)] pointer-events-auto" role="navigation" aria-label="Menu navigasi utama">
             <NavButton active={view === 'radar'} onClick={() => setView('radar')} icon={<Radar size={22} />} label="Radar" />
             <NavButton active={view === 'wallet'} onClick={() => setView('wallet')} icon={<Wallet size={22} />} label="Dompet" />
-            <button onClick={() => setView('journal')} className={`w-14 h-14 -mt-8 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${view === 'journal' ? 'bg-app-primary text-black ring-4 ring-black scale-110' : 'bg-app-primary text-black ring-4 ring-[#1a1a1a]'}`}>
+            <button 
+              onClick={() => setView('journal')} 
+              className={`w-14 h-14 -mt-8 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${view === 'journal' ? 'bg-app-primary text-black ring-4 ring-black scale-110' : 'bg-app-primary text-black ring-4 ring-[#1a1a1a]'}`}
+              aria-label="Tambah journal baru"
+              type="button"
+            >
                 <Plus size={28} strokeWidth={3} />
             </button>
             <NavButton active={view === 'map'} onClick={() => setView('map')} icon={<MapIcon size={22} />} label="Peta" />
@@ -115,8 +148,14 @@ const App: React.FC = () => {
   );
 };
 
-const NavButton: React.FC<{ active: boolean; onClick: () => void; icon: React.ReactNode; label: string }> = ({ active, onClick, icon }) => (
-    <button onClick={onClick} className={`flex flex-col items-center justify-center w-10 gap-1 transition-all ${active ? 'text-app-primary' : 'text-gray-500 hover:text-gray-300'}`}>
+const NavButton: React.FC<{ active: boolean; onClick: () => void; icon: React.ReactNode; label: string }> = ({ active, onClick, icon, label }) => (
+    <button 
+        onClick={onClick} 
+        className={`flex flex-col items-center justify-center w-10 gap-1 transition-all ${active ? 'text-app-primary' : 'text-gray-500 hover:text-gray-300'}`}
+        aria-label={label}
+        aria-current={active ? 'page' : undefined}
+        type="button"
+    >
         <div className={`transition-transform duration-200 ${active ? '-translate-y-1' : ''}`}>{React.cloneElement(icon as React.ReactElement, { fill: active ? 'currentColor' : 'none', strokeWidth: active ? 2.5 : 2 })}</div>
         {active && <div className="w-1 h-1 bg-app-primary rounded-full animate-in zoom-in"></div>}
     </button>

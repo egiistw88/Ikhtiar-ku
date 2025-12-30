@@ -1,10 +1,11 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftState, StrategyType } from '../types';
-import { calculateDistance, vibrate, playSound } from '../utils';
+import { calculateDistance, vibrate, playSound, calculateFuelRange, shouldRefuel, projectEarnings, calculateEarningsVelocity, isWithinPrayerTime, getTrafficCondition, estimateCompetitionDensity } from '../utils';
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings, getTransactions } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal, Rabbit, Crosshair, Flame, Target } from 'lucide-react';
+import { FUEL_CONSTANTS, RAIN_SAFE_ZONES } from '../constants';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal, Rabbit, Crosshair, Flame, Target, Fuel, AlertTriangle, TrendingDown, Users, MapPin } from 'lucide-react';
 
 const DriverHelmetIcon = ({ size = 24, className = "" }: {size?: number, className?: string}) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -254,9 +255,26 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         if (score > 1200) priority = 'HIGH';
         else if (score > 600) priority = 'MEDIUM';
 
+        // INTELLIGENT RAIN MODE: Boost shelter zones
         if (isRainMode) {
-             if (['Mall/Lifestyle', 'Culinary'].includes(h.category)) { score += 500; reasons.push("Teduh"); }
-             else score -= 500; 
+             if (['Mall/Lifestyle', 'Culinary', 'Culinary Night'].includes(h.category)) { 
+                 score += 700; 
+                 reasons.unshift("☔ Zona Teduh"); 
+             }
+             else if (['Transport Hub', 'Commercial'].includes(h.category)) {
+                 score += 300; // Partial boost untuk indoor areas
+                 reasons.push("Semi-Teduh");
+             }
+             else {
+                 score -= 600; // Heavy penalty untuk outdoor
+             }
+        }
+        
+        // TRAFFIC MULTIPLIER
+        const trafficCondition = getTrafficCondition(h.zone, currentHour);
+        if (trafficCondition.status === 'HEAVY' && strategy === 'FEEDER') {
+            score += 300; // Feeder loves traffic jams
+            reasons.push("Macet = Cuan");
         }
 
         return { ...h, distance, score: Math.round(score), matchReason: reasons[0] || (score > 600 ? "Potensi" : "Alternatif"), isMaintenance, priorityLevel: priority, strategyMatch };
@@ -361,17 +379,94 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
           )}
       </div>
 
-      {/* PROGRESS BAR */}
-      <div className="bg-[#1a1a1a] rounded-2xl p-4 border border-gray-800 relative overflow-hidden">
-        <div className="flex justify-between items-end mb-2 relative z-10">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Target Revenue</span>
-            <span className={`text-xl font-black ${progress >= 100 ? 'text-emerald-400' : 'text-white'}`}>{progress}%</span>
-        </div>
-        <div className="h-3 w-full bg-black rounded-full overflow-hidden relative z-10 border border-gray-700">
-            <div className={`h-full transition-all duration-1000 relative ${progress >= 100 ? 'bg-emerald-500' : 'bg-app-primary'}`} style={{ width: `${progress}%` }}>
-                <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,.15)_25%,transparent_25%,transparent_50%,rgba(255,255,255,.15)_50%,rgba(255,255,255,.15)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] animate-[progress-stripes_1s_linear_infinite]"></div>
+      {/* SMART DASHBOARD: Earnings Projection + Fuel + Prayer Alert */}
+      <div className="space-y-3">
+        {/* EARNINGS PROJECTION */}
+        {shiftState && financials && (() => {
+          const elapsedMinutes = Math.floor((Date.now() - shiftState.startTime) / 60000);
+          const projectedEarnings = projectEarnings(financials.grossIncome, elapsedMinutes);
+          const earningsVelocity = calculateEarningsVelocity(financials.grossIncome, elapsedMinutes);
+          const isOnTrack = projectedEarnings >= settings.targetRevenue;
+          
+          return (
+            <div className={`bg-[#1a1a1a] rounded-2xl p-4 border ${isOnTrack ? 'border-emerald-800' : 'border-orange-800'} relative overflow-hidden`}>
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Proyeksi Akhir Shift</span>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className={`text-2xl font-black ${isOnTrack ? 'text-emerald-400' : 'text-orange-400'}`}>Rp{Math.round(projectedEarnings/1000)}k</span>
+                    {isOnTrack ? (
+                      <TrendingUp size={16} className="text-emerald-400" />
+                    ) : (
+                      <TrendingDown size={16} className="text-orange-400" />
+                    )}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-gray-500 block">Kecepatan</span>
+                  <span className="text-sm font-bold text-app-primary">Rp{Math.round(earningsVelocity/1000)}k/jam</span>
+                </div>
+              </div>
+              <div className="h-2 w-full bg-black rounded-full overflow-hidden border border-gray-700">
+                <div className={`h-full transition-all duration-1000 ${isOnTrack ? 'bg-emerald-500' : 'bg-orange-500'}`} style={{ width: `${Math.min(100, progress)}%` }}></div>
+              </div>
+              {!isOnTrack && elapsedMinutes > 60 && (
+                <p className="text-[10px] text-orange-300 mt-2 flex items-center gap-1">
+                  <AlertTriangle size={10} /> Kecepatan kurang! {shiftState.strategy === 'SNIPER' ? 'Cari 1-2 orderan besar.' : 'Tingkatkan frekuensi orderan.'}
+                </p>
+              )}
             </div>
-        </div>
+          );
+        })()}
+
+        {/* FUEL MONITOR */}
+        {shiftState && (() => {
+          const fuelPercent = shiftState.startFuel;
+          const fuelRange = calculateFuelRange(fuelPercent);
+          const needRefuel = shouldRefuel(fuelPercent);
+          const isCritical = fuelPercent <= FUEL_CONSTANTS.CRITICAL_FUEL_THRESHOLD;
+          
+          return (
+            <div className={`bg-[#1a1a1a] rounded-2xl p-3 border ${isCritical ? 'border-red-700 animate-pulse' : needRefuel ? 'border-yellow-700' : 'border-gray-800'}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-xl ${isCritical ? 'bg-red-900/30' : needRefuel ? 'bg-yellow-900/30' : 'bg-gray-900'}`}>
+                    <Fuel size={18} className={isCritical ? 'text-red-400' : needRefuel ? 'text-yellow-400' : 'text-gray-400'} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-gray-400 block">Bensin Tersisa</span>
+                    <span className={`text-lg font-black ${isCritical ? 'text-red-400' : needRefuel ? 'text-yellow-400' : 'text-white'}`}>{fuelPercent}% (~{Math.round(fuelRange)}km)</span>
+                  </div>
+                </div>
+                {needRefuel && (
+                  <div className="text-right">
+                    <span className="text-[9px] text-yellow-300 font-bold block">ISI BENSIN</span>
+                    <span className="text-xs text-gray-400">Rp{Math.round((100-fuelPercent)/100 * FUEL_CONSTANTS.TANK_CAPACITY * FUEL_CONSTANTS.FUEL_PRICE_PER_LITER / 1000)}k</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* PRAYER TIME ALERT */}
+        {(() => {
+          const prayerCheck = isWithinPrayerTime(currentTime.timeString);
+          if (prayerCheck.isPrayerTime) {
+            return (
+              <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-700 rounded-2xl p-3 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center">
+                  <span className="text-xl">🕌</span>
+                </div>
+                <div className="flex-1">
+                  <span className="text-sm font-black text-purple-200">Waktu {prayerCheck.prayer}</span>
+                  <p className="text-[10px] text-purple-300">Rehat sejenak, berkah pasti datang.</p>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
       </div>
       
       {/* AI BUTTON */}
@@ -434,6 +529,47 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
             ))}
         </div>
 
+        {/* RAIN SHELTER RECOMMENDATIONS */}
+        {isRainMode && userLocation && gpsReady && (
+            <div className="bg-blue-900/20 border border-blue-700 rounded-2xl p-4 mb-4">
+                <div className="flex items-center gap-2 mb-3">
+                    <CloudRain size={18} className="text-blue-400" />
+                    <h3 className="font-black text-blue-200 uppercase text-sm">Tempat Teduh Terdekat</h3>
+                </div>
+                <div className="space-y-2">
+                    {RAIN_SAFE_ZONES
+                        .map(shelter => ({
+                            ...shelter,
+                            distance: calculateDistance(userLocation.lat, userLocation.lng, shelter.lat, shelter.lng)
+                        }))
+                        .sort((a, b) => a.distance - b.distance)
+                        .slice(0, 3)
+                        .map((shelter, idx) => (
+                            <button
+                                key={idx}
+                                onClick={() => {
+                                    window.open(`https://www.google.com/maps/dir/?api=1&destination=${shelter.lat},${shelter.lng}`, '_blank');
+                                    vibrate(10);
+                                    playSound('click');
+                                }}
+                                className="w-full bg-blue-950/50 border border-blue-800 rounded-xl p-3 flex items-center justify-between hover:bg-blue-900/30 transition-colors"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <MapPin size={16} className="text-blue-400" />
+                                    <div className="text-left">
+                                        <span className="text-xs font-bold text-blue-200 block">{shelter.name}</span>
+                                        <span className="text-[10px] text-blue-400">{shelter.zone}</span>
+                                    </div>
+                                </div>
+                                <span className="text-sm font-black text-blue-300">{shelter.distance.toFixed(1)} km</span>
+                            </button>
+                        ))
+                    }
+                </div>
+                <p className="text-[10px] text-blue-300 mt-3 italic">💡 Tunggu hujan reda sambil standby di dalam. Order food biasa meningkat saat hujan.</p>
+            </div>
+        )}
+
         {/* Content Area */}
         <div className="space-y-4 pb-4">
             {isScanning ? (
@@ -479,13 +615,41 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
                                     <span className="text-[10px] text-gray-500 font-bold uppercase block mt-0.5">KM</span>
                                 </div>
                             </div>
-                            <div className="mb-5">
+                            <div className="mb-4">
                                 <h3 className="font-black text-lg text-white leading-tight mb-1 line-clamp-2">{spot.origin}</h3>
-                                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-3">{spot.category}</p>
-                                <div className="bg-black/40 p-3 rounded-xl border border-white/5 flex items-start gap-3">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">{spot.category}</p>
+                                    {(() => {
+                                        const traffic = getTrafficCondition(spot.zone, currentTime.fullDate.getHours());
+                                        if (traffic.status === 'HEAVY') {
+                                            return <span className="text-[9px] bg-red-900/30 text-red-400 px-2 py-0.5 rounded font-bold">🚗 MACET</span>;
+                                        }
+                                        return null;
+                                    })()}
+                                    {(() => {
+                                        const competition = estimateCompetitionDensity(spot.zone, currentTime.fullDate.getHours());
+                                        if (competition.level === 'HIGH') {
+                                            return <span className="text-[9px] bg-orange-900/30 text-orange-400 px-2 py-0.5 rounded font-bold flex items-center gap-1"><Users size={8}/> RAMAI</span>;
+                                        }
+                                        return null;
+                                    })()}
+                                </div>
+                                <div className="bg-black/40 p-3 rounded-xl border border-white/5 flex items-start gap-3 mb-2">
                                     <Sparkles size={16} className="text-app-primary shrink-0 mt-0.5" />
                                     <div><p className="text-xs text-app-primary font-bold mb-1">{spot.matchReason}</p><p className="text-[10px] text-gray-400 leading-snug line-clamp-2">{spot.notes}</p></div>
                                 </div>
+                                {(() => {
+                                    const competition = estimateCompetitionDensity(spot.zone, currentTime.fullDate.getHours());
+                                    if (competition.level !== 'LOW') {
+                                        return (
+                                            <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                                                <Users size={10} />
+                                                <span>{competition.description}</span>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                })()}
                             </div>
                             <div className="grid grid-cols-[1fr_auto_auto] gap-2">
                                 <button onClick={() => { window.open(`https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}`, '_blank'); vibrate(10); playSound('click'); }} className={`py-3.5 rounded-xl font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2 shadow-lg ${spot.isMaintenance ? 'bg-red-600 text-white' : 'bg-white text-black hover:bg-gray-200'}`}>

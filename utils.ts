@@ -174,3 +174,95 @@ export const getRestAdvice = (hour: number) => {
     // General
     return { type: 'ISTIRAHAT', text: 'Otot tegang butuh peregangan. Ngopi dulu 15 menit biar fokus lagi.', icon: 'coffee' };
 };
+
+// FUEL CALCULATOR: Calculate remaining fuel based on distance traveled
+export const calculateFuelConsumption = (distanceKm: number, avgKmPerLiter: number = 35): number => {
+    return distanceKm / avgKmPerLiter; // Returns liters consumed
+};
+
+export const calculateRemainingFuel = (currentFuelPercent: number, tankCapacity: number = 4.2): number => {
+    return (currentFuelPercent / 100) * tankCapacity; // Returns liters
+};
+
+export const calculateFuelRange = (currentFuelPercent: number, avgKmPerLiter: number = 35, tankCapacity: number = 4.2): number => {
+    const remainingLiters = calculateRemainingFuel(currentFuelPercent, tankCapacity);
+    return remainingLiters * avgKmPerLiter; // Returns KM remaining
+};
+
+export const shouldRefuel = (currentFuelPercent: number, threshold: number = 25): boolean => {
+    return currentFuelPercent <= threshold;
+};
+
+// EARNINGS PROJECTION: Project earnings based on current rate
+export const projectEarnings = (currentEarnings: number, elapsedMinutes: number, totalShiftMinutes: number = 480): number => {
+    if (elapsedMinutes === 0) return 0;
+    const ratePerMinute = currentEarnings / elapsedMinutes;
+    return Math.round(ratePerMinute * totalShiftMinutes);
+};
+
+export const calculateEarningsVelocity = (currentEarnings: number, elapsedMinutes: number): number => {
+    if (elapsedMinutes === 0) return 0;
+    return Math.round((currentEarnings / elapsedMinutes) * 60); // Earnings per hour
+};
+
+// PRAYER TIME CHECKER
+export const isWithinPrayerTime = (currentTime: string): { isPrayerTime: boolean, prayer: string | null } => {
+    const [hour, minute] = currentTime.split(':').map(Number);
+    const currentMinutes = hour * 60 + minute;
+    
+    const prayerTimes = [
+        { name: 'Subuh', start: '04:30', end: '05:45' },
+        { name: 'Dzuhur', start: '11:45', end: '12:45' },
+        { name: 'Ashar', start: '15:00', end: '16:00' },
+        { name: 'Maghrib', start: '17:45', end: '18:30' },
+        { name: 'Isya', start: '19:00', end: '20:00' }
+    ];
+    
+    for (const prayer of prayerTimes) {
+        const [startH, startM] = prayer.start.split(':').map(Number);
+        const [endH, endM] = prayer.end.split(':').map(Number);
+        const startMinutes = startH * 60 + startM;
+        const endMinutes = endH * 60 + endM;
+        
+        if (currentMinutes >= startMinutes && currentMinutes <= endMinutes) {
+            return { isPrayerTime: true, prayer: prayer.name };
+        }
+    }
+    
+    return { isPrayerTime: false, prayer: null };
+};
+
+// TRAFFIC ZONE INTELLIGENCE
+export const getTrafficCondition = (zone: string, hour: number): { status: 'HEAVY' | 'MODERATE' | 'SMOOTH', multiplier: number } => {
+    const heavyZones = ['Pasteur', 'Gatot Subroto', 'Soekarno Hatta', 'Cibiru', 'Kopo', 'Buah Batu'];
+    const smoothZones = ['Dago Atas', 'Lembang', 'Cihampelas', 'Setiabudhi'];
+    
+    // Rush hours: 06:00-09:00, 16:00-19:00
+    const isRushHour = (hour >= 6 && hour < 9) || (hour >= 16 && hour < 19);
+    
+    if (heavyZones.includes(zone) && isRushHour) {
+        return { status: 'HEAVY', multiplier: 1.5 }; // Boost score karena macet = orderan banyak
+    }
+    
+    if (smoothZones.includes(zone)) {
+        return { status: 'SMOOTH', multiplier: 0.8 }; // Slight penalty, area sepi
+    }
+    
+    return { status: 'MODERATE', multiplier: 1.0 };
+};
+
+// COMPETITION DENSITY ESTIMATOR (Heuristic based on time & zone)
+export const estimateCompetitionDensity = (zone: string, hour: number): { level: 'LOW' | 'MEDIUM' | 'HIGH', description: string } => {
+    const popularZones = ['Stasiun Bandung', 'Pusat Kota', 'Gatot Subroto', 'Dipatiukur'];
+    const isPeakTime = (hour >= 6 && hour < 9) || (hour >= 11 && hour < 13) || (hour >= 16 && hour < 19);
+    
+    if (popularZones.includes(zone) && isPeakTime) {
+        return { level: 'HIGH', description: 'Banyak driver! Rebutan orderan.' };
+    }
+    
+    if (popularZones.includes(zone) || isPeakTime) {
+        return { level: 'MEDIUM', description: 'Kompetisi sedang.' };
+    }
+    
+    return { level: 'LOW', description: 'Zona lengang, peluang besar!' };
+};

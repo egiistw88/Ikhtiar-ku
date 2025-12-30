@@ -1,7 +1,11 @@
 
 import { Hotspot, Transaction, DailyFinancial, GarageData, UserSettings, ShiftState } from '../types';
 import { INITIAL_DATA } from '../constants';
-import { getLocalDateString } from '../utils';
+import { getLocalDateString as getLocalDateStringUtil } from '../utils';
+import { eventBus, EVENTS } from './events';
+
+// Re-export for convenience
+export const getLocalDateString = getLocalDateStringUtil;
 
 const STORAGE_KEY = 'ikhtiar_ku_data_v1';
 const SHIFT_STATE_KEY = 'ikhtiar_ku_shift_state_v2'; 
@@ -105,11 +109,14 @@ export const getHotspots = (): Hotspot[] => {
 export const addHotspot = (hotspot: Hotspot): void => {
     const current = getHotspots();
     safeSetItem(STORAGE_KEY, JSON.stringify([hotspot, ...current]));
+    eventBus.emit(EVENTS.HOTSPOT_ADDED);
+    eventBus.notifyDataChanged('hotspots');
 };
 
 export const deleteHotspot = (id: string): void => {
     const current = getHotspots();
     safeSetItem(STORAGE_KEY, JSON.stringify(current.filter(h => h.id !== id)));
+    eventBus.notifyDataChanged('hotspots');
 };
 
 export const toggleValidation = (id: string, isAccurate: boolean): void => {
@@ -128,6 +135,8 @@ export const toggleValidation = (id: string, isAccurate: boolean): void => {
         return h;
     });
     safeSetItem(STORAGE_KEY, JSON.stringify(updated));
+    eventBus.emit(EVENTS.HOTSPOT_VALIDATED);
+    eventBus.notifyDataChanged('hotspots');
 };
 
 export const getShiftState = (): ShiftState | null => {
@@ -143,10 +152,13 @@ export const getShiftState = (): ShiftState | null => {
 
 export const saveShiftState = (state: ShiftState): void => {
     safeSetItem(SHIFT_STATE_KEY, JSON.stringify(state));
+    eventBus.notifyDataChanged('shift');
 };
 
 export const clearShiftState = (): void => {
     localStorage.removeItem(SHIFT_STATE_KEY);
+    eventBus.emit(EVENTS.SHIFT_ENDED);
+    eventBus.notifyDataChanged('shift');
 };
 
 export const getUserSettings = (): UserSettings => {
@@ -169,24 +181,59 @@ export const getTransactions = (): Transaction[] => {
 export const addTransaction = (tx: Transaction): void => {
     const current = getTransactions();
     safeSetItem(FINANCE_KEY, JSON.stringify([tx, ...current]));
-    
+
     // Auto-update Odometer logic
     if (tx.distanceKm && tx.distanceKm > 0) {
         const garage = getGarageData();
         garage.currentOdometer = (garage.currentOdometer || 0) + tx.distanceKm;
         saveGarageData(garage);
     }
+
+    eventBus.emit(EVENTS.TRANSACTION_ADDED);
+    eventBus.notifyDataChanged('transactions');
 };
 
 export const updateTransaction = (updatedTx: Transaction): void => {
     const current = getTransactions();
+    const oldTx = current.find(t => t.id === updatedTx.id);
+
+    // Calculate odometer difference
+    let odometerDiff = 0;
+    if (oldTx && updatedTx.distanceKm) {
+        const oldDistance = oldTx.distanceKm || 0;
+        odometerDiff = updatedTx.distanceKm - oldDistance;
+    }
+
     const updated = current.map(tx => tx.id === updatedTx.id ? updatedTx : tx);
     safeSetItem(FINANCE_KEY, JSON.stringify(updated));
+
+    // Update odometer if distance changed
+    if (odometerDiff !== 0) {
+        const garage = getGarageData();
+        garage.currentOdometer = (garage.currentOdometer || 0) + odometerDiff;
+        saveGarageData(garage);
+    }
+
+    eventBus.emit(EVENTS.TRANSACTION_UPDATED);
+    eventBus.notifyDataChanged('transactions');
 };
 
 export const deleteTransaction = (id: string): void => {
     const current = getTransactions();
-    safeSetItem(FINANCE_KEY, JSON.stringify(current.filter(tx => String(tx.id) !== String(id))));
+    const oldTx = current.find(t => String(t.id) === String(id));
+
+    const updated = current.filter(tx => String(tx.id) !== String(id));
+    safeSetItem(FINANCE_KEY, JSON.stringify(updated));
+
+    // Subtract odometer if distance was recorded
+    if (oldTx && oldTx.distanceKm && oldTx.distanceKm > 0) {
+        const garage = getGarageData();
+        garage.currentOdometer = (garage.currentOdometer || 0) - oldTx.distanceKm;
+        saveGarageData(garage);
+    }
+
+    eventBus.emit(EVENTS.TRANSACTION_DELETED);
+    eventBus.notifyDataChanged('transactions');
 };
 
 export const getTodayFinancials = (): DailyFinancial => {
@@ -204,16 +251,17 @@ export const getTodayFinancials = (): DailyFinancial => {
     txs.forEach(t => {
         if (t.type === 'income') {
             grossIncome += t.amount;
-            if (t.isCash !== false) cashIncome += t.amount;
+            if (t.isCash === true) cashIncome += t.amount;
             else nonCashIncome += t.amount;
         } else if (t.type === 'expense') {
-            if (t.isCash !== false) realOpsCost += t.amount;
+            if (t.isCash === true) realOpsCost += t.amount;
         }
     });
 
     const netCash = startCash + cashIncome - realOpsCost;
     const maintenanceFund = Math.round(grossIncome * 0.10);
-    const kitchen = netCash - maintenanceFund - startCash;
+    // Fix: Kitchen is the actual take-home money (net cash minus maintenance fund)
+    const kitchen = netCash - maintenanceFund;
     
     return {
         date: todayStr,

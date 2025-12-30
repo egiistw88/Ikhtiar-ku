@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { DailyFinancial, ShiftState } from '../types';
-import { clearShiftState, getTransactions } from '../services/storage';
+import { clearShiftState, getTransactions, getShiftState, getLocalDateString } from '../services/storage';
 import { CheckCircle2, ArrowRight, Wallet, Home, AlertCircle, Crosshair, Rabbit, Trophy, TrendingUp } from 'lucide-react';
 
 interface ShiftSummaryProps { financials: DailyFinancial | null; shiftState: ShiftState | null; onClose: () => void; }
@@ -9,14 +9,16 @@ interface ShiftSummaryProps { financials: DailyFinancial | null; shiftState: Shi
 const ShiftSummary: React.FC<ShiftSummaryProps> = ({ financials, shiftState, onClose }) => {
     const handleCloseBook = () => { clearShiftState(); onClose(); };
     const fmt = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n);
-    
+
     const net = financials?.netCash || 0;
     const kitchen = financials?.kitchen || 0;
     const gross = financials?.grossIncome || 0;
 
     // --- STRATEGY PERFORMANCE ANALYTICS ---
     const calculatePerformance = () => {
-        const txs = getTransactions().filter(t => t.date === new Date().toISOString().split('T')[0] && t.type === 'income' && t.category === 'Trip');
+        const currentShift = shiftState || getShiftState();
+        const todayStr = currentShift?.date || getLocalDateString();
+        const txs = getTransactions().filter(t => t.date === todayStr && t.type === 'income' && t.category === 'Trip');
         const totalTrips = txs.length;
         
         // Calculate Duration

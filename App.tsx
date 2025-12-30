@@ -15,6 +15,7 @@ import ShiftSummary from './components/ShiftSummary';
 import PreRideSetup from './components/PreRideSetup';
 import RestModeOverlay from './components/RestModeOverlay';
 import { Radar, Map as MapIcon, Plus, Wallet, Shield, CheckCircle } from 'lucide-react';
+import { eventBus, EVENTS } from './services/events';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -52,13 +53,49 @@ const App: React.FC = () => {
 
     const handleVisibilityChange = () => { if (document.visibilityState === 'visible') refreshAppData(); };
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    const timer = setInterval(() => setCurrentTime(getCurrentTimeInfo()), 10000); 
-    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", handleVisibilityChange); };
-  }, []);
+    const timer = setInterval(() => setCurrentTime(getCurrentTimeInfo()), 10000);
+
+    // Listen to data change events
+    const handleDataRefresh = (dataType: 'transactions' | 'hotspots' | 'garage' | 'shift' | 'financials') => {
+        if (dataType === 'hotspots') {
+            setHotspots(getHotspots());
+        } else if (dataType === 'transactions' || dataType === 'shift' || dataType === 'financials') {
+            const currentShift = getShiftState();
+            if (currentShift && currentShift.date === getLocalDateString()) {
+                // Shift is still active, don't refresh everything yet
+                if (dataType === 'transactions') {
+                    // Just update financials without changing view
+                    const financials = getTodayFinancials();
+                    // Update summary data if showing summary
+                    if (view === 'summary') {
+                        setSummaryData({ finance: financials });
+                    }
+                }
+            } else {
+                // Shift ended, go back to setup
+                setShiftState(null);
+                setView('setup');
+            }
+        }
+    };
+
+    eventBus.onDataChange(handleDataRefresh);
+
+    return () => {
+        clearInterval(timer);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        eventBus.removeDataChangeListener(handleDataRefresh);
+    };
+  }, [view]); // Include view as dependency
 
   const handleSetupComplete = () => { refreshAppData(); setView('radar'); };
   const handleRefreshData = () => { refreshAppData(); setView('radar'); };
-  const handleOpenSummary = (finance: DailyFinancial | null) => { setSummaryData({ finance: getTodayFinancials() }); setView('summary'); };
+  const handleOpenSummary = (finance: DailyFinancial | null) => {
+      // Pass the current financial data instead of recalculating
+      const currentFinancials = finance || getTodayFinancials();
+      setSummaryData({ finance: currentFinancials });
+      setView('summary');
+  };
   const handleCloseSummary = () => { setView('setup'); setShiftState(null); };
   
   const handleStartRest = () => {

@@ -1,10 +1,11 @@
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftState, StrategyType } from '../types';
-import { calculateDistance, vibrate, playSound } from '../utils';
+import { calculateDistance, vibrate, playSound, getLocalDateString } from '../utils';
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings, getTransactions } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
 import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal, Rabbit, Crosshair, Flame, Target } from 'lucide-react';
+import { eventBus, EVENTS } from '../services/events';
 
 const DriverHelmetIcon = ({ size = 24, className = "" }: {size?: number, className?: string}) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -57,7 +58,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
   useEffect(() => {
     syncData();
     calculateMomentum();
-    
+
     let watchId: number | null = null;
     if (navigator.geolocation) {
         watchId = navigator.geolocation.watchPosition(
@@ -72,7 +73,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
 
     const handleResume = () => {
         if (document.visibilityState === 'visible') {
-            syncData(); 
+            syncData();
             calculateMomentum();
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
@@ -88,28 +89,40 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
     };
     document.addEventListener('visibilitychange', handleResume);
 
-    const interval = setInterval(() => { syncData(); calculateMomentum(); }, 30000); 
+    const interval = setInterval(() => { syncData(); calculateMomentum(); }, 30000);
+
+    // Listen to data change events
+    const handleDataChanged = (dataType: 'transactions' | 'hotspots' | 'garage' | 'shift' | 'financials') => {
+        syncData();
+        calculateMomentum();
+    };
+    eventBus.onDataChange(handleDataChanged);
 
     return () => {
         if (watchId !== null) navigator.geolocation.clearWatch(watchId);
         clearInterval(interval);
         document.removeEventListener('visibilitychange', handleResume);
+        eventBus.removeDataChangeListener(handleDataChanged);
     };
-  }, [shiftState]); 
+  }, [shiftState, currentTime]); // Only depend on props 
 
-  const syncData = () => {
-        setLocalHotspots(getHotspots()); 
+  const syncData = useCallback(() => {
+        setLocalHotspots(getHotspots());
         setFinancials(getTodayFinancials());
         setGarage(getGarageData());
         setSettings(getUserSettings());
-  };
+        // Recalculate momentum after data refresh
+        calculateMomentum();
+  }, []);
 
   const calculateMomentum = () => {
       const txs = getTransactions();
+      const todayStr = getLocalDateString(); // Use helper for consistent date format
+      const todayTxs = txs.filter(t => t.date === todayStr && t.type === 'income' && t.category === 'Trip');
       const now = Date.now();
       const twoHoursAgo = now - (2 * 60 * 60 * 1000);
-      const recentTx = txs.filter(t => t.timestamp > twoHoursAgo);
-      
+      const recentTx = todayTxs.filter(t => t.timestamp > twoHoursAgo);
+
       const strategy = shiftState?.strategy || 'FEEDER';
       let score = 0;
 
@@ -125,7 +138,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
           // 1 Order = 25 poin. (4 order dalam 2 jam = 100%)
           score = recentTx.length * 25;
       }
-      
+
       setMomentumScore(Math.min(100, score));
   }
 

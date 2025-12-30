@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Hotspot, Transaction, ShiftState } from '../types';
-import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate, playSound } from '../utils';
+import { getTimeWindow, formatCurrencyInput, parseCurrencyInput, vibrate, playSound, getLocalDateString, calculateDistance } from '../utils';
 import { MapPin, Loader2, Bike, Utensils, Package, ShoppingBag, X, Save, CreditCard, Banknote, Mic, Zap, ChevronRight, RotateCcw } from 'lucide-react';
-import { addHotspot, addTransaction } from '../services/storage';
+import { addHotspot, addTransaction, getGarageData, saveGarageData } from '../services/storage';
 import CustomDialog from './CustomDialog';
 
 interface JournalEntryProps {
@@ -11,6 +11,9 @@ interface JournalEntryProps {
   shiftState: ShiftState | null; // NEW: Strategy Awareness
   onSaved: () => void;
 }
+
+// Last known position for distance calculation
+let lastKnownPosition: { lat: number; lng: number; timestamp: number } | null = null;
 
 type AppSource = 'Gojek' | 'Grab' | 'Maxim' | 'Shopee' | 'Indriver';
 type ServiceType = 'Bike' | 'Food' | 'Send' | 'Shop';
@@ -195,9 +198,9 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, shiftState, on
 
   const saveLogic = () => {
     const argoVal = parseCurrencyInput(argoRaw);
-    if (!argoVal || isNaN(argoVal) || argoVal <= 0) { 
-        setAlert({show: true, type:'alert', title:'Gagal', msg: "Nominal belum diisi!"}); 
-        return; 
+    if (!argoVal || isNaN(argoVal) || argoVal <= 0) {
+        setAlert({show: true, type:'alert', title:'Gagal', msg: "Nominal belum diisi!"});
+        return;
     }
 
     setIsSubmitting(true);
@@ -228,11 +231,48 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, shiftState, on
         }
     }
 
-    let category: Hotspot['category'] = 'Other';
-    if (serviceType === 'Food') category = 'Culinary';
-    if (serviceType === 'Bike') category = 'Bike';
-    if (serviceType === 'Send') category = 'Logistics';
-    if (serviceType === 'Shop') category = 'Mall/Lifestyle';
+    // Fix: Proper category mapping for transactions
+    let txCategory: Transaction['category'] = 'Other';
+    let hotspotCategory: Hotspot['category'] = 'Other';
+
+    switch (serviceType) {
+        case 'Bike':
+            txCategory = 'Trip';
+            hotspotCategory = 'Bike';
+            break;
+        case 'Food':
+            txCategory = 'Food';
+            hotspotCategory = 'Culinary';
+            break;
+        case 'Send':
+            txCategory = 'Food'; // Send is delivery, categorized as Food in transactions
+            hotspotCategory = 'Logistics';
+            break;
+        case 'Shop':
+            txCategory = 'Other';
+            hotspotCategory = 'Mall/Lifestyle';
+            break;
+    }
+
+    // Calculate distance if we have GPS data
+    let distanceKm = 0;
+    if (coords && lastKnownPosition) {
+        const timeDiff = Date.now() - lastKnownPosition.timestamp;
+        // Only use distance if it's within reasonable time (max 30 min)
+        if (timeDiff < 30 * 60 * 1000) {
+            distanceKm = calculateDistance(
+                lastKnownPosition.lat, lastKnownPosition.lng,
+                coords.lat, coords.lng
+            );
+        }
+    }
+
+    // Update odometer if distance is recorded
+    if (distanceKm > 0) {
+        const garage = getGarageData();
+        garage.currentOdometer = (garage.currentOdometer || 0) + distanceKm;
+        saveGarageData(garage);
+    }
 
     if (coords) {
         const [h] = currentTime.timeString.split(':').map(Number);
@@ -241,12 +281,17 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, shiftState, on
             date: currentTime.fullDate.toISOString().split('T')[0],
             day: currentTime.dayName,
             time_window: getTimeWindow(h),
-            predicted_hour: currentTime.timeString, 
+            predicted_hour: currentTime.timeString,
             origin: origin || `Titik ${serviceType}`,
             type: `${serviceType} (${appSource})`,
-            category, lat: coords.lat, lng: coords.lng, zone: 'User Entry',
-            notes: `Input Manual [${appSource}]`, isUserEntry: true,
-            isDaily: false, baseScore: 100, 
+            category: hotspotCategory,
+            lat: coords.lat,
+            lng: coords.lng,
+            zone: 'User Entry',
+            notes: `Input Manual [${appSource}]`,
+            isUserEntry: true,
+            isDaily: false,
+            baseScore: 100,
             validations: [{ date: currentTime.fullDate.toISOString().split('T')[0], isAccurate: true }]
         };
         addHotspot(newHotspot);
@@ -258,13 +303,22 @@ const JournalEntry: React.FC<JournalEntryProps> = ({ currentTime, shiftState, on
         timestamp: Date.now(),
         amount: argoVal,
         type: 'income',
-        category: serviceType === 'Bike' ? 'Trip' : 'Other',
+        category: txCategory,
         note: `${appSource} - ${origin || 'Manual'}`,
-        distanceKm: 0,
+        distanceKm: distanceKm,
         isCash
     };
     addTransaction(newTx);
-    
+
+    // Update last known position
+    if (coords) {
+        lastKnownPosition = {
+            lat: coords.lat,
+            lng: coords.lng,
+            timestamp: Date.now()
+        };
+    }
+
     // Show Feedback Alert before closing
     setAlert({
         show: true,

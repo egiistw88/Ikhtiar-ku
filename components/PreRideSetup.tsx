@@ -38,15 +38,25 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
         // 2. LEVEL BAHAYA SISTEM (Saldo Akun)
         // Sniper butuh saldo lebih besar karena main kakap
         const minBal = strat === 'SNIPER' ? 30000 : 10000;
-        
+        const minBalWarning = strat === 'SNIPER' ? 50000 : 20000;
+
         if (bal < minBal) {
             return {
                 type: 'CRITICAL',
                 icon: ShieldAlert,
                 msg: strat === 'SNIPER' ? "SALDO SNIPER TIRIS" : "AKUN RAWAN GAGU",
-                subMsg: strat === 'SNIPER' 
-                    ? "Mau main kakap saldo minimal 30rb Ndan. Topup dulu biar orderan gede masuk." 
+                subMsg: strat === 'SNIPER'
+                    ? "Mau main kakap saldo minimal 30rb Ndan. Topup dulu biar orderan gede masuk."
                     : "Saldo di bawah 10rb bikin server 'malas' kasih order auto. Pancingan harus ada."
+            };
+        }
+
+        if (bal < minBalWarning) {
+            return {
+                type: 'WARNING',
+                icon: AlertTriangle,
+                msg: "SALDO MENIPIS",
+                subMsg: "Saldo masih aman tapi segera topup untuk kenyamanan operasional."
             };
         } 
 
@@ -84,7 +94,8 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
         // Tentukan status shift untuk database
         let status: ShiftState['status'] = 'SAFE';
         if (advice.type === 'CRITICAL') status = 'CRITICAL';
-        if (advice.type === 'WARNING') status = 'WARNING';
+        else if (advice.type === 'WARNING') status = 'WARNING';
+        else if (advice.type === 'OPPORTUNITY') status = 'SAFE';
 
         const newState: ShiftState = {
             date: getLocalDateString(),

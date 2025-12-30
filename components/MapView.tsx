@@ -138,16 +138,29 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) 
   }, [hotspots, filterMode, currentTime]);
 
   useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setUserLocation([pos.coords.latitude, pos.coords.longitude]),
-        (err) => console.warn("GPS Access Denied"),
-        { enableHighAccuracy: true }
-      );
-    }
+    const updateLocation = () => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => setUserLocation([pos.coords.latitude, pos.coords.longitude]),
+          (err) => console.warn("GPS Access Denied"),
+          { enableHighAccuracy: true }
+        );
+      }
+    };
+
+    // Initial location fetch
+    updateLocation();
+
     const timer = setTimeout(() => { setShowIntel(true); playSound('success'); }, 800);
-    return () => clearTimeout(timer);
-  }, []);
+
+    // Refresh GPS every 60 seconds
+    const gpsInterval = setInterval(updateLocation, 60000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(gpsInterval);
+    };
+  }, [hotspots]); // Refresh location when hotspots change
 
   const handleRecenter = () => {
       vibrate(10);

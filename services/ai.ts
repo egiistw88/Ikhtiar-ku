@@ -10,7 +10,10 @@ const getAiClient = () => {
         key = localStorage.getItem(API_STORAGE_KEY) || '';
     }
     if (!key) {
-        key = process.env.API_KEY || '';
+        // Get environment variable from Vite
+        // @ts-expect-error - Vite environment variables access at build time
+        const env = import.meta.env || {} as Record<string, string | undefined>;
+        key = env.VITE_API_KEY || '';
     }
     if (!key) return null;
     return new GoogleGenAI({ apiKey: key });

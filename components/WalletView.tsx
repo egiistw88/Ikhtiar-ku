@@ -31,9 +31,10 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast, shiftState }) => {
     useEffect(() => { refreshData(); }, []);
 
     const refreshData = () => {
+        const todayStr = new Date().toISOString().split('T')[0];
         setSummary(getTodayFinancials());
         setTransactions(getTransactions()
-            .filter(t => t.date === new Date().toISOString().split('T')[0])
+            .filter(t => t.date === todayStr)
             .sort((a,b) => b.timestamp - a.timestamp)
         );
     }
@@ -72,9 +73,10 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast, shiftState }) => {
 
     const handleQuickAdd = (amount: number, cat: string, text: string) => {
         vibrate(20);
+        const todayStr = new Date().toISOString().split('T')[0];
         const newTx: Transaction = {
             id: Date.now().toString(),
-            date: new Date().toISOString().split('T')[0],
+            date: todayStr,
             timestamp: Date.now(),
             amount: amount,
             type: 'expense',
@@ -83,9 +85,13 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast, shiftState }) => {
             isCash: true
         };
         addTransaction(newTx);
-        const newStats = getTodayFinancials(); 
+        // Properly refresh data after adding transaction
+        const newStats = getTodayFinancials();
+        const allTxs = getTransactions()
+            .filter(t => t.date === todayStr)
+            .sort((a,b) => b.timestamp - a.timestamp);
         setSummary(newStats);
-        setTransactions(prev => [newTx, ...prev]);
+        setTransactions(allTxs);
         setAdvisorTrigger({ tx: newTx, stats: newStats });
     };
 
@@ -136,10 +142,10 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast, shiftState }) => {
         } else {
             const newTx = { ...base, id: Date.now().toString() } as Transaction;
             addTransaction(newTx);
-            const newStats = getTodayFinancials();
-            setSummary(newStats);
-            setTransactions(prev => [newTx, ...prev]);
+            // Properly refresh all data after adding transaction
+            refreshData();
             if (customDate === new Date().toISOString().split('T')[0]) {
+                const newStats = getTodayFinancials();
                 setAdvisorTrigger({ tx: newTx, stats: newStats });
             }
         }
@@ -151,7 +157,13 @@ const WalletView: React.FC<WalletViewProps> = ({ onToast, shiftState }) => {
             deleteTransaction(editingTxId);
             setIsDeleteConfirmOpen(false);
             setIsModalOpen(false);
-            refreshData();
+            // Refresh data after deletion
+            const newStats = getTodayFinancials();
+            setSummary(newStats);
+            const allTxs = getTransactions()
+                .filter(t => t.date === new Date().toISOString().split('T')[0])
+                .sort((a,b) => b.timestamp - a.timestamp);
+            setTransactions(allTxs);
             onToast("Dihapus");
         }
     };

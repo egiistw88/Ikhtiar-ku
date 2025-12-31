@@ -373,6 +373,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
                 ))
             )}
         </div>
+      </div>
     </div>
   );
 };

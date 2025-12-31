@@ -15,6 +15,7 @@ export interface Hotspot {
   isUserEntry?: boolean; // True jika ini inputan manual driver
   isDaily?: boolean; // NEW: True jika ini pola harian (Stasiun, Mall, Pasar) yang tidak peduli hari apa
   baseScore?: number; // NEW: Nilai popularitas bawaan (0-100)
+  visitCount?: number; // NEW: Berapa kali user mencatat orderan di titik & jam ini (Learning Loop)
   validations?: {
     date: string;
     isAccurate: boolean;

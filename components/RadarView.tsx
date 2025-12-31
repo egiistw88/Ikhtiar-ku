@@ -1,10 +1,11 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftState, EngineOutput } from '../types';
 import { vibrate, playSound } from '../utils';
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings, getTransactions } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
 import { runLogicEngine } from '../services/logicEngine';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal, Rabbit, Crosshair, Flame, Radio } from 'lucide-react';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal, Rabbit, Crosshair, Flame, Radio, User, History, CheckCheck } from 'lucide-react';
 
 const DriverHelmetIcon = ({ size = 24, className = "" }: {size?: number, className?: string}) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -49,10 +50,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
   const pulseRef = useRef<any>(null);
 
   useEffect(() => {
-    // Initial Load
     refreshAllData();
-
-    // Setup GPS Watcher
     let watchId: number | null = null;
     if (navigator.geolocation) {
         watchId = navigator.geolocation.watchPosition(
@@ -65,11 +63,8 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
         );
     }
-
     // REAL-TIME HEARTBEAT (Every 10 seconds refresh logic)
-    pulseRef.current = setInterval(() => {
-        runEngine();
-    }, 10000); // 10 Detik update skor (Real-time feel)
+    pulseRef.current = setInterval(() => { runEngine(); }, 10000); 
 
     const handleResume = () => { if (document.visibilityState === 'visible') refreshAllData(); };
     document.addEventListener('visibilitychange', handleResume);
@@ -79,7 +74,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         if (pulseRef.current) clearInterval(pulseRef.current);
         document.removeEventListener('visibilitychange', handleResume);
     };
-  }, [shiftState, userLocation]); 
+  }, [shiftState, userLocation, isRainMode]); 
 
   const refreshAllData = () => {
       setLocalHotspots(getHotspots()); 
@@ -95,7 +90,8 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
           shiftState,
           getTodayFinancials(),
           getTransactions(),
-          getUserSettings()
+          getUserSettings(),
+          isRainMode // PASS RAIN MODE TO ENGINE
       );
       setEngineOut(output);
   };
@@ -133,7 +129,6 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
       vibrate(10); playSound(isAccurate ? 'success' : 'click'); onToast(isAccurate ? "Validasi: Gacor! (Disimpan)" : "Validasi: Anyep (Dihindari)");
   };
 
-  // Filter Logic for Display
   const displayedHotspots = (engineOut?.scoredHotspots || []).filter(h => {
         if (quickFilter === 'FOOD') return (h.category.includes('Culinary') || h.type === 'Food' || h.type.includes('Shop') || h.category === 'Mall/Lifestyle');
         if (quickFilter === 'BIKE') return (h.type.includes('Bike') || h.type === 'Ride' || h.category === 'Residential' || h.category === 'Transport Hub');
@@ -141,7 +136,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
         return true;
   }).slice(0, 7);
 
-  const progress = Math.min(100, Math.round(((financials?.netCash || 0) / settings.targetRevenue) * 100));
+  const progress = Math.min(100, Math.round(((financials?.grossIncome || 0) / settings.targetRevenue) * 100));
 
   return (
     <div className="pt-6 px-4 space-y-6">
@@ -220,10 +215,10 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
           </div>
 
           {(engineOut?.momentum.advice) && (
-              <div className={`mt-3 p-2 border rounded-lg flex items-start gap-2 ${shiftState?.strategy === 'SNIPER' ? 'bg-purple-900/20 border-purple-800' : 'bg-blue-900/20 border-blue-800'}`}>
-                  <Radio size={12} className="text-gray-400 mt-0.5 animate-pulse" />
-                  <p className="text-[10px] text-gray-200 leading-tight">
-                     {engineOut.momentum.advice}
+              <div className={`mt-3 p-3 border rounded-xl flex items-start gap-3 transition-colors ${shiftState?.strategy === 'SNIPER' ? 'bg-purple-900/20 border-purple-800/50' : 'bg-blue-900/20 border-blue-800/50'}`}>
+                  <div className="mt-0.5"><Radio size={16} className="text-white animate-pulse" /></div>
+                  <p className="text-xs text-gray-200 leading-snug italic font-medium">
+                     "{engineOut.momentum.advice}"
                   </p>
               </div>
           )}
@@ -232,7 +227,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
       {/* PROGRESS BAR */}
       <div className="bg-[#1a1a1a] rounded-2xl p-4 border border-gray-800 relative overflow-hidden">
         <div className="flex justify-between items-end mb-2 relative z-10">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Target Revenue</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Target Harian</span>
             <span className={`text-xl font-black ${progress >= 100 ? 'text-emerald-400' : 'text-white'}`}>{progress}%</span>
         </div>
         <div className="h-3 w-full bg-black rounded-full overflow-hidden relative z-10 border border-gray-700">
@@ -331,6 +326,19 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
                         <div className="relative z-10">
                             <div className="flex justify-between items-start mb-4">
                                 <div className="flex flex-wrap gap-1.5">
+                                    {/* USER HISTORY BADGE */}
+                                    {spot.isUserEntry && (
+                                         <span className="text-[9px] bg-blue-900/30 text-blue-400 border border-blue-500/30 px-2 py-1 rounded font-black uppercase inline-flex items-center gap-1">
+                                            <History size={10}/> Riwayat Anda
+                                        </span>
+                                    )}
+                                    {/* VISIT COUNT BADGE */}
+                                    {spot.visitCount && spot.visitCount > 1 && (
+                                         <span className="text-[9px] bg-yellow-900/30 text-yellow-400 border border-yellow-500/30 px-2 py-1 rounded font-black uppercase inline-flex items-center gap-1">
+                                            <CheckCheck size={10}/> {spot.visitCount}x Kesini
+                                        </span>
+                                    )}
+
                                     {/* Strategy Match Badge */}
                                     {spot.strategyMatch && (
                                         <span className={`text-[9px] px-2 py-1 rounded font-black uppercase inline-flex items-center gap-1 ${shiftState?.strategy === 'SNIPER' ? 'bg-purple-600 text-white' : 'bg-emerald-500 text-black'}`}>

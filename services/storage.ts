@@ -1,7 +1,7 @@
 
 import { Hotspot, Transaction, DailyFinancial, GarageData, UserSettings, ShiftState } from '../types';
 import { INITIAL_DATA } from '../constants';
-import { getLocalDateString } from '../utils';
+import { getLocalDateString, calculateDistance, getTimeDifference } from '../utils';
 
 const STORAGE_KEY = 'ikhtiar_ku_data_v1';
 const SHIFT_STATE_KEY = 'ikhtiar_ku_shift_state_v2'; 
@@ -10,7 +10,6 @@ const SETTINGS_KEY = 'ikhtiar_ku_settings_v1';
 const GARAGE_KEY = 'ikhtiar_ku_garage_v1';
 
 // --- UTILITY: SAFE JSON PARSER (ANTI CRASH) ---
-// Mencegah aplikasi Blank Screen jika data localStorage korup (misal HP mati mendadak)
 const safeParse = <T>(jsonString: string | null, fallback: T): T => {
     if (!jsonString) return fallback;
     try {
@@ -39,8 +38,8 @@ const safeSetItem = (key: string, value: string) => {
 export const runDataHousekeeping = (forceAggressive: boolean = false): void => {
     try {
         const now = new Date();
-        const txRetentionDays = forceAggressive ? 3 : 7; 
-        const hotspotRetentionDays = forceAggressive ? 7 : 14;
+        const txRetentionDays = forceAggressive ? 3 : 14; 
+        const hotspotRetentionDays = forceAggressive ? 14 : 30; // Simpan history hotspot lebih lama (30 hari)
 
         const limitDateTx = new Date(now.setDate(now.getDate() - txRetentionDays)).getTime();
         const limitDateSpot = new Date(now.setDate(now.getDate() - hotspotRetentionDays)).getTime();
@@ -98,8 +97,50 @@ export const getHotspots = (): Hotspot[] => {
     return parsed.map((h: any) => ({
         ...h,
         isDaily: h.isDaily ?? false,
+        visitCount: h.visitCount ?? (h.isUserEntry ? 1 : 0), // Init visitCount
         baseScore: h.baseScore ?? (h.isUserEntry ? 100 : 50)
     }));
+};
+
+// NEW: SMART MERGING LOGIC
+// Jika ada hotspot user lain dalam radius 100m di jam yang sama (+- 1 jam), jangan buat baru.
+// Update yang lama: Tambah Score & VisitCount.
+export const mergeOrAddHotspot = (newSpot: Hotspot): void => {
+    const current = getHotspots();
+    
+    if (!newSpot.isUserEntry) {
+        addHotspot(newSpot);
+        return;
+    }
+
+    const nearbyIndex = current.findIndex(h => {
+        if (!h.isUserEntry) return false;
+        const dist = calculateDistance(h.lat, h.lng, newSpot.lat, newSpot.lng);
+        const timeDiff = getTimeDifference(h.predicted_hour, newSpot.predicted_hour);
+        return dist < 0.1 && timeDiff <= 60; // < 100 meter & < 1 jam beda
+    });
+
+    if (nearbyIndex !== -1) {
+        // MERGE / UPDATE EXISTING
+        const existing = current[nearbyIndex];
+        const newCount = (existing.visitCount || 1) + 1;
+        const newScore = Math.min((existing.baseScore || 100) + 20, 300); // Cap max score 300
+        
+        const updatedSpot: Hotspot = {
+            ...existing,
+            date: newSpot.date, // Update last visited date
+            visitCount: newCount,
+            baseScore: newScore,
+            notes: `${newCount}x Riwayat Gacor disini. (Update: ${getLocalDateString()})`
+        };
+        
+        current[nearbyIndex] = updatedSpot;
+        safeSetItem(STORAGE_KEY, JSON.stringify(current));
+    } else {
+        // ADD NEW
+        newSpot.visitCount = 1;
+        safeSetItem(STORAGE_KEY, JSON.stringify([newSpot, ...current]));
+    }
 };
 
 export const addHotspot = (hotspot: Hotspot): void => {

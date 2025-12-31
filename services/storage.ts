@@ -170,11 +170,9 @@ export const addTransaction = (tx: Transaction): void => {
     const current = getTransactions();
     safeSetItem(FINANCE_KEY, JSON.stringify([tx, ...current]));
     
-    // Auto-update Odometer logic
+    // Auto-update Odometer logic (jika ada input manual jarak)
     if (tx.distanceKm && tx.distanceKm > 0) {
-        const garage = getGarageData();
-        garage.currentOdometer = (garage.currentOdometer || 0) + tx.distanceKm;
-        saveGarageData(garage);
+        incrementOdometer(tx.distanceKm);
     }
 };
 
@@ -249,6 +247,14 @@ export const getGarageData = (): GarageData => {
 
 export const saveGarageData = (data: GarageData): void => {
     safeSetItem(GARAGE_KEY, JSON.stringify(data));
+};
+
+// NEW: Helper untuk menambah KM secara otomatis
+export const incrementOdometer = (distanceKm: number): void => {
+    if (distanceKm <= 0) return;
+    const garage = getGarageData();
+    garage.currentOdometer = (garage.currentOdometer || 0) + distanceKm;
+    saveGarageData(garage);
 };
 
 export const createBackupString = (): string => {

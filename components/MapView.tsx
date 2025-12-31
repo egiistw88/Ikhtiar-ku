@@ -1,11 +1,11 @@
-
 import React, { useEffect, useState, useMemo } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap, Marker } from 'react-leaflet';
-import { Hotspot, TimeState, ShiftState } from '../types';
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
+import { Hotspot, TimeState, ShiftState, EngineOutput } from '../types';
 import { CATEGORY_COLORS } from '../constants';
+import { runLogicEngine } from '../services/logicEngine';
+import { getTransactions, getUserSettings, getTodayFinancials } from '../services/storage';
 import { Navigation, Zap, Map as MapIcon, Target, X, Compass, Lightbulb, TrendingUp, Filter, Calendar, Layers, ShieldCheck, Clock, AlertCircle } from 'lucide-react';
 import { vibrate, playSound, calculateDistance } from '../utils';
-import L from 'leaflet';
 
 // Leaflet CSS is imported in index.html
 
@@ -24,118 +24,13 @@ const MapUpdater: React.FC<{ center: [number, number] }> = ({ center }) => {
     return null;
 };
 
-// INTELLIGENCE ENGINE (The Brain) - STRATEGY AWARE
-const generateTacticalAdvice = (hotspots: Hotspot[], time: TimeState, userLoc: [number, number], shiftState: ShiftState | null) => {
-    const hour = time.fullDate.getHours();
-    const strategy = shiftState?.strategy || 'FEEDER';
-    
-    // 1. CARI SPOT TERDEKAT & AKTIF
-    const activeSpots = hotspots.filter(h => {
-        const [hHour] = h.predicted_hour.split(':').map(Number);
-        // Window ketat: 1 jam ke belakang s/d 2 jam ke depan
-        return Math.abs(hHour - hour) <= 2;
-    });
-
-    if (activeSpots.length > 0) {
-        // Cari yang paling dekat dengan user
-        const nearest = activeSpots.reduce((prev, curr) => {
-            const prevDist = calculateDistance(userLoc[0], userLoc[1], prev.lat, prev.lng);
-            const currDist = calculateDistance(userLoc[0], userLoc[1], curr.lat, curr.lng);
-            return currDist < prevDist ? curr : prev;
-        });
-        
-        const dist = calculateDistance(userLoc[0], userLoc[1], nearest.lat, nearest.lng);
-
-        return {
-            type: 'DATA_DRIVEN',
-            title: `TARGET TERDEKAT: ${nearest.origin}`,
-            highlight: `${nearest.category} • ${dist} KM`,
-            message: `Terdeteksi pola ${nearest.type} yang valid di jam segini.`,
-            action: `Geser ${dist}km ke arah ${nearest.zone}. Data menunjukkan potensi tinggi.`,
-            icon: <Target className="text-red-600" size={32} />,
-            colorClass: 'bg-white border-l-4 border-red-600'
-        };
-    }
-
-    // 2. FALLBACK STRATEGY (Based on Feeder vs Sniper)
-    
-    // LOGIKA SNIPER (MALAM/KAKAP)
-    if (strategy === 'SNIPER') {
-        if (hour >= 22 || hour < 4) return {
-            type: 'GENERAL', title: 'MODE SNIPER: AKTIF', highlight: 'Stasiun / Bandara / Hub',
-            message: 'Jamnya orang pulang luar kota & shift malam.',
-            action: 'Standby di Stasiun Kereta atau Terminal. Incar kakap!',
-            icon: <Zap className="text-purple-500" size={32} />, colorClass: 'bg-white border-l-4 border-purple-500'
-        };
-        if (hour >= 18 && hour < 22) return {
-            type: 'GENERAL', title: 'PEMANASAN SNIPER', highlight: 'Mall & Kuliner Malam',
-            message: 'Cari orderan penghubung ke pusat kota.',
-            action: 'Geser ke Mall besar atau Pusat Kuliner Malam.',
-            icon: <Compass className="text-blue-500" size={32} />, colorClass: 'bg-white border-l-4 border-blue-500'
-        };
-        return {
-             type: 'GENERAL', title: 'DILUAR JAM OPERASI', highlight: 'Istirahat',
-             message: 'Sniper mainnya malam Ndan. Hemat tenaga.',
-             action: 'Tidur dulu, nanti malam gaspol.',
-             icon: <Compass className="text-gray-400" size={32} />, colorClass: 'bg-white border-l-4 border-gray-400'
-        };
-    }
-
-    // LOGIKA FEEDER (NORMAL/PAGI)
-    if (hour >= 6 && hour < 10) return {
-        type: 'GENERAL', title: 'MODE RUSH HOUR PAGI', highlight: 'Perumahan -> Sekolah/Kantor',
-        message: 'Fokus pada residensial padat. Abaikan mall/kuliner dulu.',
-        action: 'Standby di akses keluar komplek perumahan.',
-        icon: <Zap className="text-amber-500" size={32} />, colorClass: 'bg-white border-l-4 border-amber-500'
-    };
-    if (hour >= 11 && hour < 14) return {
-        type: 'GENERAL', title: 'MODE MAKAN SIANG', highlight: 'Pusat Kuliner & Kantor',
-        message: 'Orderan Food & pengantaran makanan mendominasi.',
-        action: 'Merapat ke area Resto Gacoan/McD atau kantin karyawan.',
-        icon: <Zap className="text-orange-500" size={32} />, colorClass: 'bg-white border-l-4 border-orange-500'
-    };
-    if (hour >= 16 && hour < 20) return {
-        type: 'GENERAL', title: 'MODE PULANG KERJA', highlight: 'Stasiun & Gedung Kantor',
-        message: 'Traffic penjemputan orang (Bike/Car) sangat tinggi.',
-        action: 'Standby di Stasiun atau Lobby gedung perkantoran.',
-        icon: <Zap className="text-blue-600" size={32} />, colorClass: 'bg-white border-l-4 border-blue-600'
-    };
-    
-    return {
-        type: 'GENERAL', title: 'MODE STANDBY AREA', highlight: 'Cari Spot 24 Jam',
-        message: 'Belum ada pola spesifik terdeteksi di koordinat ini.',
-        action: 'Geser ke area Pusat Kota atau Pasar Induk.',
-        icon: <Compass className="text-gray-500" size={32} />, colorClass: 'bg-white border-l-4 border-gray-400'
-    };
-};
-
 const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) => {
   const [userLocation, setUserLocation] = useState<[number, number]>([-6.9175, 107.6191]);
   const [showIntel, setShowIntel] = useState(false);
   const [filterMode, setFilterMode] = useState<'STRICT' | 'ALL'>('STRICT');
-
-  const intel = useMemo(() => generateTacticalAdvice(hotspots, currentTime, userLocation, shiftState), [hotspots, currentTime, userLocation, shiftState]);
-
-  // LOGIC FILTER PRECISI
-  const displayedHotspots = useMemo(() => {
-      if (filterMode === 'ALL') return hotspots;
-      
-      const currentHour = currentTime.fullDate.getHours();
-      
-      return hotspots.filter(h => {
-          // 1. Logic Hari: Harus cocok hari ATAU tipe harian (isDaily)
-          const isDayMatch = h.isDaily || h.day === currentTime.dayName;
-          if (!isDayMatch) return false;
-
-          // 2. Logic Waktu: Window ketat (-1 jam s/d +2 jam)
-          // Contoh: Jam 10.00, akan menampilkan data jam 09.00 - 12.00
-          const [hHour] = h.predicted_hour.split(':').map(Number);
-          const timeDiff = hHour - currentHour;
-          const isTimeMatch = timeDiff >= -1 && timeDiff <= 2;
-
-          return isTimeMatch;
-      });
-  }, [hotspots, filterMode, currentTime]);
+  
+  // Real-time Engine State
+  const [engineOut, setEngineOut] = useState<EngineOutput | null>(null);
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -144,9 +39,42 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) 
         (err) => console.warn("GPS Access Denied"),
         { enableHighAccuracy: true }
       );
+      
+      const watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+               setUserLocation([pos.coords.latitude, pos.coords.longitude]);
+               // Trigger Engine update on move
+               runEngine([pos.coords.latitude, pos.coords.longitude]);
+          },
+          undefined,
+          { enableHighAccuracy: true } // Update every 50m (distanceFilter not supported in web standard)
+      );
+      return () => navigator.geolocation.clearWatch(watchId);
     }
-    const timer = setTimeout(() => { setShowIntel(true); playSound('success'); }, 800);
-    return () => clearTimeout(timer);
+  }, []);
+
+  // Initial Engine Run & Timer
+  useEffect(() => {
+      runEngine(userLocation);
+      const timer = setInterval(() => runEngine(userLocation), 30000); // 30s updates for tactical advice
+      return () => clearInterval(timer);
+  }, [userLocation, hotspots]);
+
+  const runEngine = (loc: [number, number]) => {
+      const output = runLogicEngine(
+          hotspots,
+          { lat: loc[0], lng: loc[1] },
+          shiftState,
+          getTodayFinancials(),
+          getTransactions(),
+          getUserSettings()
+      );
+      setEngineOut(output);
+  };
+
+  useEffect(() => {
+      const timer = setTimeout(() => { setShowIntel(true); playSound('success'); }, 800);
+      return () => clearTimeout(timer);
   }, []);
 
   const handleRecenter = () => {
@@ -158,17 +86,42 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) 
       }
   };
 
+  // Convert Engine Advice to UI format
+  const intelUI = useMemo(() => {
+      if (!engineOut) return null;
+      const advice = engineOut.tacticalAdvice;
+      
+      let icon = <Compass className="text-gray-500" size={32} />;
+      let colorClass = 'bg-white border-l-4 border-gray-400';
+
+      if (advice.type === 'URGENT') {
+          icon = <Target className="text-red-600 animate-pulse" size={32} />;
+          colorClass = 'bg-white border-l-4 border-red-600';
+      } else if (advice.type === 'SUCCESS') {
+          icon = <Zap className="text-emerald-500" size={32} />;
+          colorClass = 'bg-white border-l-4 border-emerald-500';
+      }
+
+      return { ...advice, icon, colorClass };
+  }, [engineOut]);
+
+  // Filter Logic
+  const displayedHotspots = useMemo(() => {
+      if (filterMode === 'ALL') return hotspots;
+      // Use Engine's strict scoring to filter map
+      return engineOut?.scoredHotspots.map(s => s as Hotspot) || [];
+  }, [hotspots, filterMode, engineOut]);
+
   return (
     <div className="h-full w-full relative bg-gray-100 overflow-hidden">
       
-      {/* 1. MAP COMPONENT (LIGHT MODE / HIGH CONTRAST) */}
+      {/* 1. MAP COMPONENT */}
       <MapContainer 
         center={userLocation} 
         zoom={15} 
         style={{ height: '100%', width: '100%', zIndex: 0 }}
         zoomControl={false}
       >
-        {/* TILE LAYER: CartoDB Voyager (Sangat jelas jalanannya, high contrast) */}
         <TileLayer
           attribution='&copy; <a href="https://carto.com/">CARTO</a>'
           url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
@@ -176,7 +129,7 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) 
         
         <MapUpdater center={userLocation} />
 
-        {/* User Location Marker (Blue Pulse) */}
+        {/* User Location Marker */}
         <CircleMarker 
             center={userLocation} 
             radius={8} 
@@ -191,11 +144,10 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) 
 
         {/* Hotspots Markers */}
         {displayedHotspots.map((spot) => {
-            // Visual Differentiation
             const isHighPriority = (spot.baseScore && spot.baseScore > 85) || spot.isUserEntry;
             const radius = isHighPriority ? 10 : 6;
             const opacity = isHighPriority ? 0.9 : 0.6;
-            const strokeColor = spot.isUserEntry ? '#000' : '#fff'; // User entry gets black border for visibility
+            const strokeColor = spot.isUserEntry ? '#000' : '#fff'; 
 
             return (
                 <CircleMarker
@@ -211,7 +163,6 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) 
                 >
                     <Popup className="custom-popup-light" closeButton={false}>
                         <div className="min-w-[180px] p-1">
-                            {/* Header Badge */}
                             <div className="flex gap-1 mb-2">
                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-white ${spot.isDaily ? 'bg-blue-600' : 'bg-purple-600'}`}>
                                     {spot.isDaily ? 'RUTIN' : spot.day.toUpperCase()}
@@ -219,11 +170,6 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) 
                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-white flex items-center gap-1">
                                     <Clock size={10}/> {spot.predicted_hour}
                                 </span>
-                                {spot.isUserEntry && (
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white flex items-center gap-1">
-                                        <ShieldCheck size={10}/> USER
-                                    </span>
-                                )}
                             </div>
                             
                             <h3 className="font-black text-gray-900 text-sm leading-tight mb-1">{spot.origin}</h3>
@@ -240,21 +186,21 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) 
         })}
       </MapContainer>
 
-      {/* 2. TACTICAL INTEL CARD (Modern Floating UI) */}
-      {showIntel && (
+      {/* 2. TACTICAL INTEL CARD (POWERED BY LOGIC ENGINE) */}
+      {showIntel && intelUI && (
           <div className="absolute top-4 left-4 right-4 z-[1000] animate-in slide-in-from-top-10 fade-in duration-500">
-              <div className={`shadow-xl rounded-2xl p-4 relative overflow-hidden ${intel.colorClass}`}>
+              <div className={`shadow-xl rounded-2xl p-4 relative overflow-hidden ${intelUI.colorClass}`}>
                   <div className="flex justify-between items-start">
                       <div className="flex gap-4">
-                          <div className="mt-1">{intel.icon}</div>
+                          <div className="mt-1">{intelUI.icon}</div>
                           <div>
                               <div className="flex items-center gap-2 mb-1">
-                                  <h3 className="font-black text-gray-900 uppercase tracking-tight">{intel.title}</h3>
+                                  <h3 className="font-black text-gray-900 uppercase tracking-tight">{intelUI.title}</h3>
                                   <span className="bg-black text-white text-[9px] font-bold px-1.5 py-0.5 rounded animate-pulse">LIVE</span>
                               </div>
-                              <p className="text-sm font-bold text-gray-800 mb-1">{intel.message}</p>
+                              <p className="text-sm font-bold text-gray-800 mb-1">{intelUI.message}</p>
                               <p className="text-xs text-gray-600 leading-relaxed bg-gray-100 p-2 rounded-lg border border-gray-200">
-                                  <span className="font-bold">Saran:</span> {intel.action}
+                                  <span className="font-bold">Saran:</span> {intelUI.action}
                               </p>
                           </div>
                       </div>
@@ -266,9 +212,8 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) 
           </div>
       )}
 
-      {/* 3. FLOATING CONTROLS (Bottom Right) */}
+      {/* 3. FLOATING CONTROLS */}
       <div className="absolute bottom-24 right-4 z-[400] flex flex-col gap-3">
-         
          {!showIntel && (
              <button 
                 onClick={() => { setShowIntel(true); vibrate(10); playSound('click'); }}
@@ -293,7 +238,7 @@ const MapView: React.FC<MapViewProps> = ({ hotspots, currentTime, shiftState }) 
          </button>
       </div>
 
-      {/* 4. LEGEND & STATUS (Bottom Left) */}
+      {/* 4. LEGEND & STATUS */}
       <div className="absolute bottom-24 left-4 z-[400] bg-white/90 backdrop-blur border border-gray-200 px-3 py-2 rounded-lg shadow-lg">
          <div className="flex items-center gap-2 mb-1">
              <div className={`w-2 h-2 rounded-full ${filterMode === 'STRICT' ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>

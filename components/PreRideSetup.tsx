@@ -92,9 +92,12 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
             startCash: cashVal,
             startFuel: fuel,
             startTime: existing ? existing.startTime : Date.now(),
+            activeMinutes: existing ? (existing.activeMinutes || 0) : 0,
+            lastActiveUpdate: existing ? (existing.lastActiveUpdate || Date.now()) : Date.now(),
             status: status,
             recommendation: advice.msg,
-            strategy: strategy
+            strategy: strategy,
+            restData: existing?.restData
         };
 
         saveShiftState(newState);
@@ -299,3 +302,4 @@ const PreRideSetup: React.FC<PreRideSetupProps> = ({ onComplete }) => {
 };
 
 export default PreRideSetup;
+    

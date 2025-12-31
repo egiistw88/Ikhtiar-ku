@@ -49,6 +49,8 @@ export interface ShiftState {
     startFuel: number; // 0 - 100 (Percentage)
     startCash: number; // Uang Tunai di Dompet
     startTime: number; // Timestamp ms
+    activeMinutes: number; // NEW: Waktu efektif kerja (tidak termasuk ngetem lama)
+    lastActiveUpdate: number; // Timestamp terakhir aktif
     status: 'CRITICAL' | 'WARNING' | 'SAFE';
     recommendation: string;
     strategy: StrategyType; // NEW: Pilihan strategi main hari ini
@@ -111,4 +113,48 @@ export interface GarageData {
   // Legal Trackers
   stnkExpiryDate: string; // ISO Date
   simExpiryDate: string; // ISO Date
+}
+
+// NEW: Real-Time Logic Engine Types
+export interface EngineOutput {
+    scoredHotspots: ScoredHotspot[];
+    momentum: {
+        score: number; // 0-100
+        label: string; // 'DINGIN', 'HANGAT', 'GACOR'
+        advice: string;
+    };
+    tacticalAdvice: {
+        title: string;
+        message: string;
+        action: string;
+        type: 'URGENT' | 'INFO' | 'SUCCESS';
+    };
+    goldenTime: {
+        isActive: boolean;
+        label: string;
+    };
+    // NEW: Financial Context Awareness
+    financialAdvice?: {
+        priority: 'TOPUP_SALDO' | 'CARI_TUNAI' | 'AMAN';
+        message: string;
+    };
+}
+
+export interface ScoredHotspot extends Hotspot {
+    distance: number;
+    score: number;
+    isMaintenance?: boolean;
+    matchReason?: string;
+    priorityLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+    strategyMatch: boolean;
+}
+
+// NEW: System Alert for Notifications
+export interface SystemAlert {
+    id: string;
+    priority: 'HIGH' | 'MEDIUM' | 'LOW';
+    title: string;
+    message: string;
+    category: 'FINANCE' | 'MAINTENANCE' | 'HEALTH';
+    timestamp: number;
 }

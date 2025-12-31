@@ -1,10 +1,10 @@
-
-import React, { useMemo, useState, useEffect } from 'react';
-import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftState, StrategyType } from '../types';
-import { calculateDistance, vibrate, playSound } from '../utils';
+import React, { useState, useEffect, useRef } from 'react';
+import { Hotspot, TimeState, DailyFinancial, GarageData, UserSettings, ShiftState, EngineOutput } from '../types';
+import { vibrate, playSound } from '../utils';
 import { toggleValidation, getHotspots, getTodayFinancials, getGarageData, getUserSettings, getTransactions } from '../services/storage';
 import { generateDriverStrategy } from '../services/ai';
-import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal, Rabbit, Crosshair, Flame, Target } from 'lucide-react';
+import { runLogicEngine } from '../services/logicEngine';
+import { Navigation, CloudRain, Sun, Settings, ThumbsUp, ThumbsDown, Power, Battery, Zap, RefreshCw, Sparkles, X, Utensils, Bike, Package, Layers, Skull, TrendingUp, Clock, RotateCcw, ArrowUpRight, Signal, Rabbit, Crosshair, Flame, Radio } from 'lucide-react';
 
 const DriverHelmetIcon = ({ size = 24, className = "" }: {size?: number, className?: string}) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -26,245 +26,120 @@ interface RadarViewProps {
   onToast: (msg: string) => void;
 }
 
-interface ScoredHotspot extends Hotspot {
-    distance: number;
-    score: number;
-    isMaintenance?: boolean;
-    matchReason?: string;
-    priorityLevel: 'HIGH' | 'MEDIUM' | 'LOW';
-    strategyMatch: boolean; // NEW: Apakah sesuai banget sama strategi?
-}
-
-type QuickFilterType = 'ALL' | 'FOOD' | 'BIKE' | 'SEND';
-
 export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots, currentTime, shiftState, onOpenSettings, onOpenSummary, onRequestRest, onToast }) => {
+  // State Data
   const [localHotspots, setLocalHotspots] = useState<Hotspot[]>(initialHotspots);
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
-  const [isRainMode, setIsRainMode] = useState(false);
   const [financials, setFinancials] = useState<DailyFinancial | null>(null);
-  const [garage, setGarage] = useState<GarageData | null>(null);
   const [settings, setSettings] = useState<UserSettings>(getUserSettings());
   
-  const [quickFilter, setQuickFilter] = useState<QuickFilterType>('ALL');
+  // State UI
+  const [isRainMode, setIsRainMode] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [gpsReady, setGpsReady] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
-  
-  const [momentumScore, setMomentumScore] = useState(0); 
+  const [quickFilter, setQuickFilter] = useState<'ALL' | 'FOOD' | 'BIKE' | 'SEND'>('ALL');
+
+  // ENGINE OUTPUT STATE
+  const [engineOut, setEngineOut] = useState<EngineOutput | null>(null);
+
+  // Refs for intervals
+  const pulseRef = useRef<any>(null);
 
   useEffect(() => {
-    syncData();
-    calculateMomentum();
-    
+    // Initial Load
+    refreshAllData();
+
+    // Setup GPS Watcher
     let watchId: number | null = null;
     if (navigator.geolocation) {
         watchId = navigator.geolocation.watchPosition(
             (pos) => {
-                setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                setUserLocation(newLoc);
                 setGpsReady(true);
             },
-            (err) => console.log("GPS Error/Waiting...", err),
+            (err) => console.log("GPS Error", err),
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
         );
     }
 
-    const handleResume = () => {
-        if (document.visibilityState === 'visible') {
-            syncData(); 
-            calculateMomentum();
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-                        setGpsReady(true);
-                    },
-                    undefined,
-                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-                );
-            }
-        }
-    };
-    document.addEventListener('visibilitychange', handleResume);
+    // REAL-TIME HEARTBEAT (Every 10 seconds refresh logic)
+    pulseRef.current = setInterval(() => {
+        runEngine();
+    }, 10000); // 10 Detik update skor (Real-time feel)
 
-    const interval = setInterval(() => { syncData(); calculateMomentum(); }, 30000); 
+    const handleResume = () => { if (document.visibilityState === 'visible') refreshAllData(); };
+    document.addEventListener('visibilitychange', handleResume);
 
     return () => {
         if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-        clearInterval(interval);
+        if (pulseRef.current) clearInterval(pulseRef.current);
         document.removeEventListener('visibilitychange', handleResume);
     };
-  }, [shiftState]); 
+  }, [shiftState, userLocation]); 
 
-  const syncData = () => {
-        setLocalHotspots(getHotspots()); 
-        setFinancials(getTodayFinancials());
-        setGarage(getGarageData());
-        setSettings(getUserSettings());
+  const refreshAllData = () => {
+      setLocalHotspots(getHotspots()); 
+      setFinancials(getTodayFinancials());
+      setSettings(getUserSettings());
+      runEngine();
   };
 
-  const calculateMomentum = () => {
-      const txs = getTransactions();
-      const now = Date.now();
-      const twoHoursAgo = now - (2 * 60 * 60 * 1000);
-      const recentTx = txs.filter(t => t.timestamp > twoHoursAgo);
-      
-      const strategy = shiftState?.strategy || 'FEEDER';
-      let score = 0;
-
-      if (strategy === 'SNIPER') {
-          // Sniper Logic: Kualitas (Nilai Order) lebih penting
-          // Order > 30rb = 50 poin. Order < 30rb = 10 poin.
-          recentTx.forEach(tx => {
-              if (tx.amount >= 30000) score += 50;
-              else score += 10;
-          });
-      } else {
-          // Feeder Logic: Kuantitas (Jumlah Order) lebih penting
-          // 1 Order = 25 poin. (4 order dalam 2 jam = 100%)
-          score = recentTx.length * 25;
-      }
-      
-      setMomentumScore(Math.min(100, score));
-  }
-
-  // LOGIC REVISI: Golden Time Dynamic based on Strategy
-  const getGoldenTimeStatus = (): { active: boolean, label: string, color: string } => {
-      const hour = currentTime.fullDate.getHours();
-      const strat = shiftState?.strategy || 'FEEDER';
-
-      if (strat === 'SNIPER') {
-          // Sniper Golden Time: 22.00 - 04.00
-          if (hour >= 22 || hour < 4) return { active: true, label: 'GOLDEN TIME: NGALONG', color: 'text-purple-400' };
-          if (hour >= 18 && hour < 22) return { active: false, label: 'WARMING UP', color: 'text-blue-400' };
-          return { active: false, label: 'OFF DUTY', color: 'text-gray-600' };
-      } else {
-          // Feeder Golden Time: Rush Hours
-          if (hour >= 6 && hour < 9) return { active: true, label: 'GOLDEN TIME: PAGI', color: 'text-amber-400' };
-          if (hour >= 11 && hour < 13) return { active: true, label: 'GOLDEN TIME: SIANG', color: 'text-orange-400' };
-          if (hour >= 16 && hour < 19) return { active: true, label: 'GOLDEN TIME: SORE', color: 'text-emerald-400' };
-          return { active: false, label: 'JAM NORMAL', color: 'text-gray-500' };
-      }
+  const runEngine = () => {
+      const output = runLogicEngine(
+          getHotspots(),
+          userLocation,
+          shiftState,
+          getTodayFinancials(),
+          getTransactions(),
+          getUserSettings()
+      );
+      setEngineOut(output);
   };
-
-  const goldenTime = getGoldenTimeStatus();
 
   const handleManualScan = () => {
-      vibrate(10);
-      playSound('click');
-      setIsScanning(true);
+      vibrate(10); playSound('click'); setIsScanning(true);
       if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
             (pos) => {
                 setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
                 setGpsReady(true);
+                setTimeout(() => { 
+                    refreshAllData(); 
+                    setIsScanning(false); 
+                    playSound('success'); 
+                    onToast("Radar diperbarui"); 
+                }, 1000);
             },
-            () => onToast("GPS Lemah/Mati"),
-            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+            () => { onToast("GPS Lemah/Mati"); setIsScanning(false); },
+            { enableHighAccuracy: true, timeout: 5000 }
           );
       }
-      setTimeout(() => { syncData(); setIsScanning(false); playSound('success'); onToast("Radar diperbarui"); }, 1000);
   };
 
   const handleAiAnalysis = async () => {
+      if (!engineOut) return;
       vibrate(20); playSound('click'); setIsAiLoading(true); setAiAdvice(null);
-      const strategy = await generateDriverStrategy(predictions, financials, shiftState, userLocation);
+      const strategy = await generateDriverStrategy(engineOut.scoredHotspots, financials, shiftState, userLocation);
       setAiAdvice(strategy); setIsAiLoading(false); vibrate([50, 50, 50]); playSound('success');
   };
 
   const handleValidation = (id: string, isAccurate: boolean) => {
       toggleValidation(id, isAccurate);
-      setLocalHotspots(prev => prev.map(h => h.id === id ? { ...h, validations: [...(h.validations || []), { date: currentTime.fullDate.toISOString().split('T')[0], isAccurate }] } : h));
+      refreshAllData();
       vibrate(10); playSound(isAccurate ? 'success' : 'click'); onToast(isAccurate ? "Validasi: Gacor! (Disimpan)" : "Validasi: Anyep (Dihindari)");
   };
 
-  // --- CORE RANKING ALGORITHM ---
-  const predictions: ScoredHotspot[] = useMemo(() => {
-    const currentHour = currentTime.fullDate.getHours();
-    const currentMinute = currentTime.fullDate.getMinutes();
-    const currentTotalMinutes = currentHour * 60 + currentMinute;
-    const strategy = shiftState?.strategy || 'FEEDER';
-    
-    const candidates = localHotspots.filter(h => {
+  // Filter Logic for Display
+  const displayedHotspots = (engineOut?.scoredHotspots || []).filter(h => {
         if (quickFilter === 'FOOD') return (h.category.includes('Culinary') || h.type === 'Food' || h.type.includes('Shop') || h.category === 'Mall/Lifestyle');
         if (quickFilter === 'BIKE') return (h.type.includes('Bike') || h.type === 'Ride' || h.category === 'Residential' || h.category === 'Transport Hub');
         if (quickFilter === 'SEND') return (h.type.includes('Delivery') || h.category === 'Logistics');
         return true;
-    });
-
-    const scored = candidates.map(h => {
-        let score = h.baseScore ? (h.baseScore * 10) : 500; 
-        let reasons: string[] = [];
-        let distance = 0; 
-        let strategyMatch = false;
-
-        if (userLocation && gpsReady) {
-            distance = calculateDistance(userLocation.lat, userLocation.lng, h.lat, h.lng);
-            const decayFactor = h.isDaily ? 20 : 50; 
-            const distPenalty = Math.pow(distance, 1.3) * decayFactor; 
-            score -= distPenalty;
-            if (distance < 1) reasons.push("Sangat Dekat");
-            else if (distance < 3) reasons.push("Jarak Ideal");
-        }
-
-        const [hHour, hMin] = h.predicted_hour.split(':').map(Number);
-        const hTotalMinutes = hHour * 60 + hMin;
-        const diffMinutes = Math.abs(currentTotalMinutes - hTotalMinutes);
-        
-        if (diffMinutes <= 45) { score += 600; reasons.push("Jam Gacor"); }
-        else if (diffMinutes <= 90) score += 300;
-        else if (diffMinutes <= 180) score -= 100;
-        else score -= 600;
-
-        if (h.isDaily) score += 200;
-        else if (h.day === currentTime.dayName) { score += 400; reasons.push(`Spesial ${h.day}`); }
-        else score -= 800;
-
-        // --- STRATEGY MULTIPLIER (THE BRAIN) ---
-        if (strategy === 'SNIPER') {
-            // Sniper likes Hubs, Malls, Long Distance potential
-            if (['Transport Hub', 'Mall/Lifestyle', 'Culinary Night', 'Commercial', 'Logistics'].includes(h.category)) {
-                score += 800; // HUGE BOOST
-                strategyMatch = true;
-                reasons.unshift("🎯 Target Sniper");
-            } else if (['Residential', 'School', 'Education'].includes(h.category)) {
-                score -= 1000; // HEAVY PENALTY (Noise Reduction)
-                reasons.push("Receh (Hindari)");
-            }
-        } else {
-            // Feeder likes Residential, School, Quick trips
-            if (['Residential', 'Education', 'School', 'Residential/Shop'].includes(h.category)) {
-                score += 500;
-                strategyMatch = true;
-                reasons.unshift("⚡ Fast Track");
-            }
-            // Proximity is king for Feeder
-            if (distance < 2) score += 400;
-        }
-
-        let isMaintenance = false;
-        const maintenanceInterval = garage?.serviceInterval || 2000;
-        const kmSinceOil = (garage?.currentOdometer || 0) - (garage?.lastOilChangeKm || 0);
-        if (kmSinceOil > maintenanceInterval && h.category === 'Service') {
-            score += 5000; isMaintenance = true; reasons = ["⚠️ WAKTUNYA SERVIS"];
-        }
-
-        let priority: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
-        if (score > 1200) priority = 'HIGH';
-        else if (score > 600) priority = 'MEDIUM';
-
-        if (isRainMode) {
-             if (['Mall/Lifestyle', 'Culinary'].includes(h.category)) { score += 500; reasons.push("Teduh"); }
-             else score -= 500; 
-        }
-
-        return { ...h, distance, score: Math.round(score), matchReason: reasons[0] || (score > 600 ? "Potensi" : "Alternatif"), isMaintenance, priorityLevel: priority, strategyMatch };
-    });
-
-    // Filter out negative scores entirely to reduce noise
-    return scored.filter(s => s.score > 0 || s.isMaintenance).sort((a, b) => b.score - a.score).slice(0, 7);
-  }, [localHotspots, currentTime, isRainMode, financials, userLocation, gpsReady, shiftState, settings, quickFilter, garage]);
+  }).slice(0, 7);
 
   const progress = Math.min(100, Math.round(((financials?.netCash || 0) / settings.targetRevenue) * 100));
 
@@ -293,7 +168,7 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
           </div>
       )}
 
-      {/* HEADER WITH STRATEGY INDICATOR */}
+      {/* HEADER WITH REALTIME PULSE */}
       <div className="flex justify-between items-start">
           <div>
               <div className="flex items-center gap-2 mb-1">
@@ -301,7 +176,13 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
                     {shiftState?.strategy === 'SNIPER' ? <Crosshair size={10}/> : <Rabbit size={10}/>}
                     {shiftState?.strategy === 'SNIPER' ? 'MODE SNIPER' : 'MODE FEEDER'}
                  </span>
-                 {isRainMode && <span className="text-[10px] font-bold text-blue-300 bg-blue-900/30 px-2 py-0.5 rounded flex items-center gap-1"><CloudRain size={10}/> HUJAN</span>}
+                 <span className="flex items-center gap-1 bg-red-900/20 px-2 py-0.5 rounded border border-red-500/20">
+                    <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                    </span>
+                    <span className="text-[9px] font-bold text-red-400">LIVE</span>
+                 </span>
               </div>
               <h1 className="text-5xl font-black text-white tracking-tighter leading-none font-mono">{currentTime.timeString}</h1>
           </div>
@@ -314,49 +195,36 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
           </div>
       </div>
 
-      {/* MOMENTUM & SERVER STATUS CARD */}
+      {/* MOMENTUM & SERVER STATUS CARD (ENGINE POWERED) */}
       <div className="bg-[#1a1a1a] rounded-2xl p-4 border border-gray-800 relative overflow-hidden">
           <div className="flex justify-between items-center mb-3">
               <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${goldenTime.active ? 'bg-amber-400 animate-pulse' : 'bg-gray-600'}`}></div>
-                  <span className={`text-xs font-black uppercase ${goldenTime.color}`}>{goldenTime.label}</span>
+                  <div className={`w-2 h-2 rounded-full ${engineOut?.goldenTime.isActive ? 'bg-amber-400 animate-pulse' : 'bg-gray-600'}`}></div>
+                  <span className={`text-xs font-black uppercase ${engineOut?.goldenTime.isActive ? 'text-amber-400' : 'text-gray-500'}`}>{engineOut?.goldenTime.label || 'Loading...'}</span>
               </div>
               <div className="flex items-center gap-1">
-                  <Flame size={14} className={momentumScore > 50 ? 'text-orange-500 animate-bounce' : 'text-gray-600'} />
+                  <Flame size={14} className={(engineOut?.momentum.score || 0) > 50 ? 'text-orange-500 animate-bounce' : 'text-gray-600'} />
                   <span className="text-[10px] font-bold text-gray-400">MOMENTUM</span>
               </div>
           </div>
           
           <div className="relative h-2 w-full bg-black rounded-full overflow-hidden">
               <div 
-                  className={`absolute left-0 top-0 h-full transition-all duration-1000 ${momentumScore > 75 ? 'bg-orange-500' : 'bg-blue-600'}`} 
-                  style={{ width: `${momentumScore}%` }}
+                  className={`absolute left-0 top-0 h-full transition-all duration-1000 ${(engineOut?.momentum.score || 0) > 75 ? 'bg-orange-500' : 'bg-blue-600'}`} 
+                  style={{ width: `${engineOut?.momentum.score || 0}%` }}
               ></div>
           </div>
           <div className="flex justify-between mt-1 text-[9px] font-mono text-gray-500">
-              <span>DINGIN</span>
-              <span>HANGAT</span>
-              <span>GACOR</span>
+              <span>{engineOut?.momentum.label}</span>
+              <span className="text-right text-[10px] text-white font-bold">{Math.round(engineOut?.momentum.score || 0)}/100</span>
           </div>
 
-          {/* DYNAMIC MOMENTUM ADVICE */}
-          {momentumScore < 20 && (
+          {(engineOut?.momentum.advice) && (
               <div className={`mt-3 p-2 border rounded-lg flex items-start gap-2 ${shiftState?.strategy === 'SNIPER' ? 'bg-purple-900/20 border-purple-800' : 'bg-blue-900/20 border-blue-800'}`}>
-                  {shiftState?.strategy === 'SNIPER' ? (
-                      <>
-                        <Target size={12} className="text-purple-400 mt-0.5" />
-                        <p className="text-[10px] text-purple-200 leading-tight">
-                            <strong>Mental Baja!</strong> Akun dingin hal biasa buat Sniper. Tunggu satu tarikan besar, jangan panik ambil receh. Sabar!
-                        </p>
-                      </>
-                  ) : (
-                      <>
-                        <Zap size={12} className="text-blue-400 mt-0.5" />
-                        <p className="text-[10px] text-blue-200 leading-tight">
-                            <strong>Akun Dingin?</strong> "Cocol" manual orderan pendek sekarang untuk memancing server (Feeding). Jangan cancel!
-                        </p>
-                      </>
-                  )}
+                  <Radio size={12} className="text-gray-400 mt-0.5 animate-pulse" />
+                  <p className="text-[10px] text-gray-200 leading-tight">
+                     {engineOut.momentum.advice}
+                  </p>
               </div>
           )}
       </div>
@@ -443,19 +311,17 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
                         <div className="flex justify-between"><div className="h-4 w-1/3 bg-gray-800 rounded"></div><div className="h-8 w-16 bg-gray-800 rounded"></div></div>
                     </div>
                 ))
-            ) : predictions.length === 0 ? (
+            ) : displayedHotspots.length === 0 ? (
                 <div className="py-12 px-6 text-center rounded-3xl bg-[#1a1a1a] border border-dashed border-gray-800 space-y-4">
                     <div className="w-16 h-16 bg-gray-900 rounded-full flex items-center justify-center mx-auto mb-3 border border-gray-800"><Skull size={28} className="text-gray-600" /></div>
                     <p className="text-gray-300 font-bold">Zona Anyep</p>
                     <p className="text-xs text-gray-500 max-w-[250px] mx-auto leading-relaxed">
-                        {shiftState?.strategy === 'SNIPER' 
-                            ? "Sabar Ndan. Coba geser ke Stasiun, Bandara, atau Pusat Kota 24 Jam." 
-                            : "Sepi orderan? Coba geser ke Perumahan Padat atau Pusat Jajanan."}
+                         {engineOut?.tacticalAdvice.action || "Coba geser ke lokasi lain."}
                     </p>
                     {quickFilter !== 'ALL' && <button onClick={() => setQuickFilter('ALL')} className="px-4 py-2 bg-gray-800 rounded-xl text-white text-xs font-bold flex items-center gap-2 mx-auto hover:bg-gray-700"><RotateCcw size={14}/> Reset Filter</button>}
                 </div>
             ) : (
-                predictions.map(spot => (
+                displayedHotspots.map(spot => (
                     <div key={spot.id} className={`bg-[#1a1a1a] rounded-3xl p-5 relative overflow-hidden group active:scale-[0.99] transition-transform border ${spot.priorityLevel === 'HIGH' ? 'border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-gray-800'}`}>
                         {spot.isMaintenance && (
                             <div className="absolute inset-0 bg-red-900/10 border-2 border-red-500/50 rounded-3xl z-20 pointer-events-none flex items-center justify-center">
@@ -500,6 +366,5 @@ export const RadarView: React.FC<RadarViewProps> = ({ hotspots: initialHotspots,
             )}
         </div>
     </div>
-  </div>
   );
 };

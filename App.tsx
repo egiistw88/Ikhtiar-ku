@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
-import { ViewState, TimeState, Hotspot, DailyFinancial, ShiftState } from './types';
-import { getCurrentTimeInfo, getLocalDateString, playSound } from './utils';
-import { getHotspots, getShiftState, runDataHousekeeping, getTodayFinancials, clearShiftState, saveShiftState } from './services/storage';
+import React, { useState, useEffect, useRef } from 'react';
+import { ViewState, TimeState, Hotspot, DailyFinancial, ShiftState, SystemAlert } from './types';
+import { getCurrentTimeInfo, getLocalDateString, playSound, calculateDistance, vibrate } from './utils';
+import { getHotspots, getShiftState, runDataHousekeeping, getTodayFinancials, clearShiftState, saveShiftState, incrementOdometer, getGarageData } from './services/storage';
+import { evaluateSystemHealth } from './services/logicEngine';
 import { RadarView } from './components/RadarView';
 import MapView from './components/MapView';
 import JournalEntry from './components/JournalEntry';
@@ -14,7 +15,7 @@ import SettingsView from './components/SettingsView';
 import ShiftSummary from './components/ShiftSummary';
 import PreRideSetup from './components/PreRideSetup';
 import RestModeOverlay from './components/RestModeOverlay';
-import { Radar, Map as MapIcon, Plus, Wallet, Shield, CheckCircle } from 'lucide-react';
+import { Radar, Map as MapIcon, Plus, Wallet, Shield, CheckCircle, BellRing } from 'lucide-react';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -25,6 +26,14 @@ const App: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [summaryData, setSummaryData] = useState<{ finance: DailyFinancial | null } | null>(null);
   const [isResting, setIsResting] = useState(false);
+  
+  // Real-time Logic Refs
+  const prevLocationRef = useRef<{lat: number, lng: number} | null>(null);
+  const odometerBufferRef = useRef<number>(0); // Buffer jarak sebelum ditulis ke DB
+  const activeMinutesRef = useRef<number>(0); // Buffer waktu aktif
+  const lastActiveCheckRef = useRef<number>(Date.now());
+  const seenAlertsRef = useRef<Set<string>>(new Set());
+  const lastAlertTimeRef = useRef<number>(0);
 
   const refreshAppData = () => {
       const storedShift = getShiftState();
@@ -37,6 +46,9 @@ const App: React.FC = () => {
           setIsResting(false);
       } else {
           setShiftState(storedShift);
+          if (storedShift) {
+             activeMinutesRef.current = storedShift.activeMinutes || 0;
+          }
           if (storedShift?.restData?.isActive) setIsResting(true);
       }
       setHotspots(getHotspots());
@@ -53,8 +65,129 @@ const App: React.FC = () => {
     const handleVisibilityChange = () => { if (document.visibilityState === 'visible') refreshAppData(); };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     const timer = setInterval(() => setCurrentTime(getCurrentTimeInfo()), 10000); 
-    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", handleVisibilityChange); };
+    
+    // Flush buffer on close
+    const handleUnload = () => flushOdometerBuffer();
+    window.addEventListener('beforeunload', handleUnload);
+
+    return () => { 
+        clearInterval(timer); 
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        window.removeEventListener('beforeunload', handleUnload);
+    };
   }, []);
+
+  // Helper to flush odometer buffer to storage (Prevent Storage Thrashing)
+  const flushOdometerBuffer = () => {
+      if (odometerBufferRef.current > 0) {
+          incrementOdometer(odometerBufferRef.current);
+          odometerBufferRef.current = 0;
+      }
+      // Also save active minutes
+      const currentShift = getShiftState();
+      if (currentShift) {
+          saveShiftState({ ...currentShift, activeMinutes: activeMinutesRef.current });
+      }
+  };
+
+  // --- REAL-TIME GPS LISTENER & ODOMETER UPDATE ---
+  useEffect(() => {
+      let watchId: number | null = null;
+      if (navigator.geolocation && shiftState && !isResting) {
+          watchId = navigator.geolocation.watchPosition(
+              (pos) => {
+                  const currentLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                  const accuracy = pos.coords.accuracy || 100;
+                  const speed = pos.coords.speed || 0; // m/s
+
+                  // LOGIC 1: GPS JITTER FILTER
+                  // Abaikan update jika akurasi buruk (> 50m) untuk perhitungan jarak
+                  if (accuracy < 50 && prevLocationRef.current) {
+                      const dist = calculateDistance(
+                          prevLocationRef.current.lat, prevLocationRef.current.lng,
+                          currentLoc.lat, currentLoc.lng
+                      );
+                      
+                      // Filter Teleportasi: Max 120km/h = ~33m/s. 
+                      // Jika dist > 0.5km dalam hitungan detik, itu glitch.
+                      if (dist > 0.01 && dist < 2.0) { 
+                          odometerBufferRef.current += dist;
+                          
+                          // Flush buffer setiap 0.5 KM agar data aman jika HP mati
+                          if (odometerBufferRef.current >= 0.5) {
+                              flushOdometerBuffer();
+                          }
+                      }
+                  }
+
+                  // LOGIC 2: SMART FATIGUE CALCULATION
+                  // Hanya hitung "Active Time" jika driver bergerak > 3 km/h (0.83 m/s)
+                  // Ini membedakan "Kerja" vs "Ngetem"
+                  const now = Date.now();
+                  if (speed > 0.83) {
+                      const timeDiff = (now - lastActiveCheckRef.current) / 60000; // minutes
+                      if (timeDiff > 0) {
+                          activeMinutesRef.current += timeDiff;
+                      }
+                  }
+                  lastActiveCheckRef.current = now;
+                  prevLocationRef.current = currentLoc;
+                  
+                  // Trigger System Health Check every location update (throttled inside func)
+                  checkSystemHealth();
+              },
+              (err) => console.log("GPS Track Error", err),
+              { enableHighAccuracy: true } 
+          );
+      }
+      return () => { if (watchId !== null) navigator.geolocation.clearWatch(watchId); };
+  }, [shiftState, isResting]);
+
+  // --- INTELLIGENT NOTIFICATION SYSTEM ---
+  const checkSystemHealth = () => {
+      const now = Date.now();
+      // Throttle checks: max once per minute to save battery
+      if (now - lastAlertTimeRef.current < 60000) return;
+
+      // Update Shift State in memory for checker
+      const currentShiftMock = shiftState ? { ...shiftState, activeMinutes: activeMinutesRef.current } : null;
+
+      const alerts = evaluateSystemHealth(
+          getTodayFinancials(), 
+          getGarageData(), 
+          currentShiftMock
+      );
+
+      if (alerts.length > 0) {
+          // Prioritize High alerts
+          const topAlert = alerts.sort((a, b) => (a.priority === 'HIGH' ? -1 : 1))[0];
+          
+          // Logic: Alert Reminder
+          // HIGH priority: Remind every 30 mins
+          // MEDIUM/LOW: Remind every 4 hours (once per shift segment)
+          const alertKey = `${topAlert.id}`;
+          const lastSeen = seenAlertsRef.current.has(alertKey);
+          
+          // Reset seen state logic based on time could be added here, 
+          // but for now we use a simple hour-based key suffix in the Engine or here.
+          // Let's rely on simple suppression: show once per session unless critical.
+          
+          const uniqueKey = `${topAlert.id}_${new Date().getHours()}`; // Show once per hour max
+
+          if (!seenAlertsRef.current.has(uniqueKey)) {
+              showToast(topAlert.title + ": " + topAlert.message);
+              if (topAlert.priority === 'HIGH') {
+                  vibrate([200, 100, 200]); 
+                  playSound('error'); // Alarm sound
+              } else {
+                  vibrate(100);
+                  playSound('success');
+              }
+              seenAlertsRef.current.add(uniqueKey);
+              lastAlertTimeRef.current = now;
+          }
+      }
+  };
 
   const handleSetupComplete = () => { refreshAppData(); setView('radar'); };
   const handleRefreshData = () => { refreshAppData(); setView('radar'); };
@@ -63,17 +196,23 @@ const App: React.FC = () => {
   
   const handleStartRest = () => {
       if (!shiftState) return;
-      const newState: ShiftState = { ...shiftState, restData: { isActive: true, startTime: Date.now(), type: 'ISTIRAHAT' } };
+      flushOdometerBuffer(); // Save progress before resting
+      const newState: ShiftState = { 
+          ...shiftState, 
+          activeMinutes: activeMinutesRef.current, // Persist active time
+          restData: { isActive: true, startTime: Date.now(), type: 'ISTIRAHAT' } 
+      };
       saveShiftState(newState); setShiftState(newState); setIsResting(true); playSound('success');
   };
 
   const handleResumeWork = () => {
       if (!shiftState) return;
       const { restData, ...resumedState } = shiftState;
+      lastActiveCheckRef.current = Date.now(); // Reset timer delta
       saveShiftState(resumedState as ShiftState); setShiftState(resumedState as ShiftState); setIsResting(false); showToast("Selamat Narik Lagi Ndan!");
   };
 
-  const showToast = (msg: string) => { setToastMessage(msg); setTimeout(() => setToastMessage(null), 3000); };
+  const showToast = (msg: string) => { setToastMessage(msg); setTimeout(() => setToastMessage(null), 4000); };
 
   if (loading) return <SplashView onFinish={() => setLoading(false)} />;
   if (view === 'setup') return <PreRideSetup onComplete={handleSetupComplete} />;
@@ -86,9 +225,9 @@ const App: React.FC = () => {
       <SOSButton />
       
       {toastMessage && (
-          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[2000] bg-emerald-600/90 backdrop-blur-md text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 w-[90%] max-w-sm border border-emerald-400/30">
-              <div className="bg-white/20 p-1 rounded-full"><CheckCircle size={18} className="text-white" /></div>
-              <span className="font-bold text-sm leading-snug">{toastMessage}</span>
+          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[2000] bg-[#1e1e1e]/95 backdrop-blur-md text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-top-4 fade-in duration-300 w-[90%] max-w-sm border border-gray-700">
+              <div className="bg-app-primary/20 p-2 rounded-full"><BellRing size={20} className="text-app-primary animate-pulse" /></div>
+              <span className="font-bold text-xs leading-snug">{toastMessage}</span>
           </div>
       )}
 
